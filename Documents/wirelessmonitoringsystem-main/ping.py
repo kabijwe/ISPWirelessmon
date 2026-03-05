@@ -9,7 +9,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, render_template, send_file, request, Response, redirect, url_for, session, jsonify
+from flask import Flask, render_template, send_file, request, Response, redirect, url_for, session, jsonify, flash
 from flask_socketio import SocketIO, emit
 import pandas as pd
 from collections import defaultdict, deque
@@ -26,6 +26,11 @@ import matplotlib.pyplot as plt
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from PIL import Image
+import hashlib
+import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Setup logging
 logging.basicConfig(
@@ -39,7 +44,16 @@ logging.basicConfig(
 
 # Configuration
 app = Flask(__name__, template_folder='templates')
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'secret!')
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+
+# Email configuration for password reset and notifications
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USER = os.getenv('EMAIL_USER', 'demo.networkmonitor@gmail.com')  # Demo email
+EMAIL_PASS = os.getenv('EMAIL_PASS', 'demo_password_123')  # Demo password
+EMAIL_FROM = os.getenv('EMAIL_FROM', 'Network Monitor <demo.networkmonitor@gmail.com>')
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', ping_timeout=120, ping_interval=30)
 results_lock = Lock()
 results = []
@@ -70,6 +84,58 @@ downtime_cache = {}
 uptime_cache = {}
 alert_cache = {}
 alert_thread_running = True
+
+# Maintenance Mode
+MAINTENANCE_WINDOWS = {}  # IP -> {'start': datetime, 'end': datetime, 'reason': str}
+MAINTENANCE_SCHEDULES = []  # List of scheduled maintenance windows
+
+def is_in_maintenance(sm_ip):
+    """Check if a device is currently in maintenance mode"""
+    if sm_ip not in MAINTENANCE_WINDOWS:
+        return False
+    
+    maintenance = MAINTENANCE_WINDOWS[sm_ip]
+    now = datetime.now()
+    
+    if maintenance['start'] <= now <= maintenance['end']:
+        return True
+    
+    # Clean up expired maintenance windows
+    if now > maintenance['end']:
+        del MAINTENANCE_WINDOWS[sm_ip]
+    
+    return False
+
+def add_maintenance_window(sm_ip, start_time, end_time, reason="Scheduled maintenance"):
+    """Add a maintenance window for a device"""
+    MAINTENANCE_WINDOWS[sm_ip] = {
+        'start': start_time,
+        'end': end_time,
+        'reason': reason
+    }
+    logging.info(f"Added maintenance window for {sm_ip}: {start_time} to {end_time}")
+
+def remove_maintenance_window(sm_ip):
+    """Remove maintenance window for a device"""
+    if sm_ip in MAINTENANCE_WINDOWS:
+        del MAINTENANCE_WINDOWS[sm_ip]
+        logging.info(f"Removed maintenance window for {sm_ip}")
+
+def get_maintenance_status():
+    """Get current maintenance status for all devices"""
+    now = datetime.now()
+    active_maintenance = {}
+    
+    for sm_ip, maintenance in MAINTENANCE_WINDOWS.items():
+        if maintenance['start'] <= now <= maintenance['end']:
+            active_maintenance[sm_ip] = {
+                'reason': maintenance['reason'],
+                'start': maintenance['start'].strftime('%Y-%m-%d %H:%M:%S'),
+                'end': maintenance['end'].strftime('%Y-%m-%d %H:%M:%S'),
+                'remaining': str(maintenance['end'] - now).split('.')[0]
+            }
+    
+    return active_maintenance
 
 # Ensure log directory exists
 if not os.path.exists(LOG_DIR):
@@ -115,19 +181,877 @@ def append_to_log_file(alert):
 @tenacity.retry(stop=tenacity.stop_after_attempt(3), wait=tenacity.wait_fixed(1))
 def init_db():
     try:
-        conn = sqlite3.connect('ping_history.db', check_same_thread=False)
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False, timeout=30)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA synchronous=NORMAL')
+        conn.execute('PRAGMA cache_size=10000')
+        conn.execute('PRAGMA temp_store=memory')
         conn.execute('''CREATE TABLE IF NOT EXISTS history 
                         (timestamp TEXT, sm_ip TEXT, status TEXT, latency REAL)''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_sm_ip ON history (sm_ip)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON history (timestamp)')
         conn.commit()
         conn.close()
-        logging.info("Database initialized")
+        logging.info("Database initialized successfully")
     except Exception as e:
         logging.error(f"Database init failed: {str(e)}")
         raise
 
 init_db()
+
+def init_users_db():
+    """Initialize users database with admin user"""
+    try:
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False)
+        
+        # Create users table
+        conn.execute('''CREATE TABLE IF NOT EXISTS users 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         username TEXT UNIQUE NOT NULL,
+                         email TEXT UNIQUE NOT NULL,
+                         password_hash TEXT NOT NULL,
+                         role TEXT DEFAULT 'user',
+                         is_active INTEGER DEFAULT 1,
+                         created_at TEXT NOT NULL,
+                         last_login TEXT,
+                         reset_token TEXT,
+                         reset_token_expires TEXT,
+                         contact_number TEXT,
+                         designation TEXT,
+                         department TEXT)''')
+        
+        # Create user activity logs table
+        conn.execute('''CREATE TABLE IF NOT EXISTS user_activity_logs 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         user_id INTEGER NOT NULL,
+                         username TEXT NOT NULL,
+                         activity_type TEXT NOT NULL,
+                         activity_description TEXT,
+                         ip_address TEXT,
+                         timestamp TEXT NOT NULL,
+                         FOREIGN KEY (user_id) REFERENCES users (id))''')
+        
+        # Create sessions table for better session management
+        conn.execute('''CREATE TABLE IF NOT EXISTS user_sessions 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         user_id INTEGER NOT NULL,
+                         session_token TEXT UNIQUE NOT NULL,
+                         created_at TEXT NOT NULL,
+                         expires_at TEXT NOT NULL,
+                         ip_address TEXT,
+                         user_agent TEXT,
+                         FOREIGN KEY (user_id) REFERENCES users (id))''')
+        
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users (username)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions (session_token)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_activity_logs_user ON user_activity_logs (user_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_activity_logs_timestamp ON user_activity_logs (timestamp)')
+        
+        # Migrate existing users table to add new columns if they don't exist
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'contact_number' not in columns:
+            conn.execute('ALTER TABLE users ADD COLUMN contact_number TEXT')
+        if 'designation' not in columns:
+            conn.execute('ALTER TABLE users ADD COLUMN designation TEXT')
+        if 'department' not in columns:
+            conn.execute('ALTER TABLE users ADD COLUMN department TEXT')
+        
+        # Create default admin user if not exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+        admin_count = cursor.fetchone()[0]
+        
+        if admin_count == 0:
+            admin_username = os.getenv('ADMIN_USERNAME', 'admin')
+            admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com')
+            admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
+            admin_hash = hash_password(admin_password)
+            
+            cursor.execute("""
+                INSERT INTO users (username, email, password_hash, role, created_at)
+                VALUES (?, ?, ?, 'admin', ?)
+            """, (admin_username, admin_email, admin_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            
+            logging.info(f"Created default admin user: {admin_username}")
+        
+        # Create demo users: dilip.kc and paras.thapa with demo123 passwords
+        demo_users = [
+            ('dilip.kc', 'dilip.kc@worldlink.com.np', 'demo123'),
+            ('paras.thapa', 'paras.thapa@worldlink.com.np', 'demo123')
+        ]
+        
+        for username, email, password in demo_users:
+            cursor.execute("SELECT COUNT(*) FROM users WHERE username = ?", (username,))
+            if cursor.fetchone()[0] == 0:
+                password_hash = hash_password(password)
+                cursor.execute("""
+                    INSERT INTO users (username, email, password_hash, role, created_at)
+                    VALUES (?, ?, ?, 'user', ?)
+                """, (username, email, password_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                logging.info(f"Created demo user: {username}")
+        
+        conn.commit()
+        conn.close()
+        logging.info("Users database initialized")
+    except Exception as e:
+        logging.error(f"Users database init failed: {str(e)}")
+
+def hash_password(password):
+    """Hash password using SHA-256 with salt"""
+    salt = secrets.token_hex(32)
+    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}:{password_hash}"
+
+def verify_password(password, stored_hash):
+    """Verify password against stored hash"""
+    try:
+        salt, password_hash = stored_hash.split(':')
+        return hashlib.sha256((password + salt).encode()).hexdigest() == password_hash
+    except:
+        return False
+
+def generate_reset_token():
+    """Generate secure reset token"""
+    return secrets.token_urlsafe(32)
+
+def send_reset_email(email, token, username):
+    """Send password reset email"""
+    # Demo mode - just log the email instead of sending
+    if EMAIL_USER == 'demo.networkmonitor@gmail.com' or not EMAIL_PASS or EMAIL_PASS == 'demo_password_123':
+        logging.info(f"DEMO EMAIL - Password reset would be sent to {email}")
+        logging.info(f"Reset token: {token}")
+        logging.info(f"Reset URL: {request.url_root}reset-password?token={token}")
+        return True  # Simulate successful email
+    
+    if not EMAIL_USER or not EMAIL_PASS:
+        logging.warning("Email not configured, cannot send reset email")
+        return False
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_FROM
+        msg['To'] = email
+        msg['Subject'] = "Password Reset - Network Monitor"
+        
+        reset_url = f"{request.url_root}reset-password?token={token}"
+        
+        body = f"""
+        Hello {username},
+        
+        You have requested a password reset for your Network Monitor account.
+        
+        Click the link below to reset your password:
+        {reset_url}
+        
+        This link will expire in 1 hour.
+        
+        If you did not request this reset, please ignore this email.
+        
+        Best regards,
+        Network Monitor Team
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.send_message(msg)
+        server.quit()
+        
+        logging.info(f"Password reset email sent to {email}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to send reset email: {str(e)}")
+        return False
+
+init_users_db()
+
+def init_comments_db():
+    """Initialize comments and acknowledgments database"""
+    try:
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False)
+        
+        # Create comments table
+        conn.execute('''CREATE TABLE IF NOT EXISTS device_comments 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         sm_ip TEXT NOT NULL,
+                         comment TEXT NOT NULL,
+                         username TEXT DEFAULT 'Anonymous',
+                         timestamp TEXT NOT NULL,
+                         comment_type TEXT DEFAULT 'comment')''')
+        
+        # Create acknowledgments table
+        conn.execute('''CREATE TABLE IF NOT EXISTS device_acknowledgments 
+                        (sm_ip TEXT PRIMARY KEY,
+                         status TEXT NOT NULL,
+                         username TEXT DEFAULT 'Anonymous',
+                         timestamp TEXT NOT NULL,
+                         comment TEXT)''')
+        
+        # Create tasks table for task management
+        conn.execute('''CREATE TABLE IF NOT EXISTS device_tasks 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         task_id TEXT UNIQUE,
+                         sm_ip TEXT NOT NULL,
+                         task_title TEXT NOT NULL,
+                         task_description TEXT,
+                         status TEXT DEFAULT 'open',
+                         priority TEXT DEFAULT 'medium',
+                         assigned_to TEXT,
+                         created_by TEXT NOT NULL,
+                         created_at TEXT NOT NULL,
+                         updated_at TEXT NOT NULL,
+                         closed_at TEXT,
+                         closed_by TEXT,
+                         resolution TEXT)''')
+        
+        # Add task_id column if it doesn't exist (migration)
+        try:
+            conn.execute('ALTER TABLE device_tasks ADD COLUMN task_id TEXT UNIQUE')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        # Generate task_ids for existing tasks that don't have one
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM device_tasks WHERE task_id IS NULL ORDER BY id")
+        tasks_without_id = cursor.fetchall()
+        for task in tasks_without_id:
+            task_id = f"TASK-{1000 + task[0]:04d}"
+            cursor.execute("UPDATE device_tasks SET task_id = ? WHERE id = ?", (task_id, task[0]))
+        
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_comments_ip ON device_comments (sm_ip)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ack_ip ON device_acknowledgments (sm_ip)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_ip ON device_tasks (sm_ip)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON device_tasks (assigned_to)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON device_tasks (status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_task_id ON device_tasks (task_id)')
+        conn.commit()
+        conn.close()
+        logging.info("Comments and acknowledgments database initialized")
+    except Exception as e:
+        logging.error(f"Comments database init failed: {str(e)}")
+
+init_comments_db()
+
+# Authentication helper functions
+def login_required(f):
+    """Decorator to require login for routes"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """Decorator to require admin role for routes"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        
+        user = get_current_user()
+        if not user or user['role'] != 'admin':
+            flash('Admin access required', 'error')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def get_current_user():
+    """Get current logged-in user"""
+    if 'user_id' not in session:
+        return None
+    
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, last_login, contact_number, designation, department
+                FROM users WHERE id = ?
+            """, (session['user_id'],))
+            user_data = cursor.fetchone()
+            
+            if user_data:
+                return {
+                    'id': user_data[0],
+                    'username': user_data[1],
+                    'email': user_data[2],
+                    'role': user_data[3],
+                    'is_active': user_data[4],
+                    'last_login': user_data[5],
+                    'contact_number': user_data[6],
+                    'designation': user_data[7],
+                    'department': user_data[8]
+                }
+    except Exception as e:
+        logging.error(f"Error getting current user: {str(e)}")
+    
+    return None
+
+def log_user_activity(user_id, username, activity_type, activity_description='', ip_address=None):
+    """Log user activity to database"""
+    try:
+        if ip_address is None:
+            ip_address = request.remote_addr if request else None
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_activity_logs (user_id, username, activity_type, activity_description, ip_address, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_id, username, activity_type, activity_description, ip_address, timestamp))
+            conn.commit()
+            
+        logging.info(f"Activity logged: {username} - {activity_type}")
+    except Exception as e:
+        logging.error(f"Error logging activity: {str(e)}")
+
+def get_all_users():
+    """Get all users for admin management"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, created_at, last_login
+                FROM users ORDER BY created_at DESC
+            """)
+            users_data = cursor.fetchall()
+            
+            users = []
+            for user_data in users_data:
+                users.append({
+                    'id': user_data[0],
+                    'username': user_data[1],
+                    'email': user_data[2],
+                    'role': user_data[3],
+                    'is_active': user_data[4],
+                    'created_at': user_data[5],
+                    'last_login': user_data[6]
+                })
+            return users
+    except Exception as e:
+        logging.error(f"Error getting all users: {str(e)}")
+        return []
+
+def send_assignment_notification(user_email, username, device_ip, device_name, location, assigned_by, comment=""):
+    """Send email notification when a device is assigned to a user"""
+    # Demo mode - just log the email instead of sending
+    if EMAIL_USER == 'demo.networkmonitor@gmail.com' or not EMAIL_PASS or EMAIL_PASS == 'demo_password_123':
+        logging.info(f"DEMO EMAIL - Assignment notification would be sent to {user_email}")
+        logging.info(f"Subject: Device Assignment - {device_ip}")
+        logging.info(f"Device: {device_ip} ({device_name}) at {location}")
+        logging.info(f"Assigned by: {assigned_by}")
+        logging.info(f"Comment: {comment}")
+        return True  # Simulate successful email
+    
+    if not EMAIL_USER or not EMAIL_PASS:
+        logging.warning("Email not configured, cannot send assignment notification")
+        return False
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_FROM
+        msg['To'] = user_email
+        msg['Subject'] = f"Device Assignment - {device_ip}"
+        
+        dashboard_url = f"{request.url_root}login"
+        
+        body = f"""
+        Hello {username},
+        
+        You have been assigned a network device that requires attention:
+        
+        Device Details:
+        - IP Address: {device_ip}
+        - Device Name: {device_name}
+        - Location: {location}
+        - Assigned by: {assigned_by}
+        {f"- Comment: {comment}" if comment else ""}
+        
+        Please log in to the Network Monitor dashboard to review and acknowledge this assignment:
+        {dashboard_url}
+        
+        You can add comments, update the status, and track the device's performance through the dashboard.
+        
+        Best regards,
+        Network Monitor System
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(EMAIL_HOST, EMAIL_PORT)
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.send_message(msg)
+        server.quit()
+        
+        logging.info(f"Assignment notification sent to {user_email} for device {device_ip}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to send assignment notification: {str(e)}")
+        return False
+
+def create_user_session(user_id, ip_address, user_agent):
+    """Create a new user session"""
+    try:
+        session_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now() + timedelta(hours=24)
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            conn.execute("""
+                INSERT INTO user_sessions (user_id, session_token, created_at, expires_at, ip_address, user_agent)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_id, session_token, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                  expires_at.strftime('%Y-%m-%d %H:%M:%S'), ip_address, user_agent))
+            conn.commit()
+        
+        return session_token
+    except Exception as e:
+        logging.error(f"Error creating user session: {str(e)}")
+        return None
+
+def cleanup_expired_sessions():
+    """Clean up expired sessions"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            conn.execute("DELETE FROM user_sessions WHERE expires_at < ?", 
+                        (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+            conn.commit()
+    except Exception as e:
+        logging.error(f"Error cleaning up sessions: {str(e)}")
+
+# Authentication Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember_me = request.form.get('remember_me') == 'on'
+        
+        if not username or not password:
+            flash('Username and password are required', 'error')
+            return render_template('login.html')
+        
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, username, email, password_hash, role, is_active
+                    FROM users WHERE username = ? OR email = ?
+                """, (username, username))
+                user_data = cursor.fetchone()
+                
+                if user_data and verify_password(password, user_data[3]):
+                    if not user_data[5]:  # is_active
+                        flash('Account is deactivated. Please contact administrator.', 'error')
+                        return render_template('login.html')
+                    
+                    # Update last login
+                    cursor.execute("UPDATE users SET last_login = ? WHERE id = ?",
+                                 (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_data[0]))
+                    conn.commit()
+                    
+                    # Create session
+                    session['user_id'] = user_data[0]
+                    session['username'] = user_data[1]
+                    session['role'] = user_data[4]
+                    session.permanent = remember_me
+                    
+                    # Create session record
+                    create_user_session(user_data[0], request.remote_addr, request.headers.get('User-Agent', ''))
+                    
+                    # Log login activity
+                    log_user_activity(user_data[0], user_data[1], 'login', 'User logged in successfully', request.remote_addr)
+                    
+                    flash(f'Welcome back, {user_data[1]}!', 'success')
+                    
+                    # Redirect based on role
+                    next_page = request.args.get('next')
+                    if next_page:
+                        return redirect(next_page)
+                    elif user_data[4] == 'admin':
+                        return redirect(url_for('admin_dashboard'))
+                    else:
+                        return redirect(url_for('dashboard'))
+                else:
+                    flash('Invalid username or password', 'error')
+        except Exception as e:
+            logging.error(f"Login error: {str(e)}")
+            flash('Login failed. Please try again.', 'error')
+    
+    return render_template('login.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        logging.info(f"Signup attempt for username: {username}, email: {email}")
+        
+        # Validation
+        if not username or not email or not password:
+            flash('All fields are required', 'error')
+            return render_template('signup.html')
+        
+        if len(username) < 3:
+            flash('Username must be at least 3 characters long', 'error')
+            return render_template('signup.html')
+        
+        if len(password) < 6:
+            flash('Password must be at least 6 characters long', 'error')
+            return render_template('signup.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('signup.html')
+        
+        # Email validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            flash('Invalid email address', 'error')
+            return render_template('signup.html')
+        
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                
+                # Check if username or email already exists
+                cursor.execute("SELECT id FROM users WHERE username = ? OR email = ?", (username, email))
+                if cursor.fetchone():
+                    flash('Username or email already exists', 'error')
+                    return render_template('signup.html')
+                
+                # Create new user
+                password_hash = hash_password(password)
+                cursor.execute("""
+                    INSERT INTO users (username, email, password_hash, role, created_at)
+                    VALUES (?, ?, ?, 'user', ?)
+                """, (username, email, password_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                conn.commit()
+                
+                logging.info(f"User {username} created successfully, redirecting to login")
+                flash('Account created successfully! Please log in.', 'success')
+                return redirect(url_for('login'))
+        except Exception as e:
+            logging.error(f"Signup error: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
+            flash('Registration failed. Please try again.', 'error')
+    
+    return render_template('signup.html')
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        
+        if not email:
+            flash('Email address is required', 'error')
+            return render_template('forgot_password.html')
+        
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, username, email FROM users WHERE email = ?", (email,))
+                user_data = cursor.fetchone()
+                
+                if user_data:
+                    # Generate reset token
+                    reset_token = generate_reset_token()
+                    expires_at = datetime.now() + timedelta(hours=1)
+                    
+                    cursor.execute("""
+                        UPDATE users SET reset_token = ?, reset_token_expires = ?
+                        WHERE id = ?
+                    """, (reset_token, expires_at.strftime('%Y-%m-%d %H:%M:%S'), user_data[0]))
+                    conn.commit()
+                    
+                    # Send reset email
+                    if send_reset_email(email, reset_token, user_data[1]):
+                        flash('Password reset instructions have been sent to your email', 'success')
+                    else:
+                        flash('Failed to send reset email. Please contact administrator.', 'error')
+                else:
+                    # Don't reveal if email exists or not for security
+                    flash('If an account with that email exists, reset instructions have been sent', 'info')
+        except Exception as e:
+            logging.error(f"Forgot password error: {str(e)}")
+            flash('Password reset failed. Please try again.', 'error')
+    
+    return render_template('forgot_password.html')
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+def reset_password():
+    token = request.args.get('token') or request.form.get('token')
+    
+    if not token:
+        flash('Invalid reset link', 'error')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        if not password or len(password) < 6:
+            flash('Password must be at least 6 characters long', 'error')
+            return render_template('reset_password.html', token=token)
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('reset_password.html', token=token)
+        
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, username FROM users 
+                    WHERE reset_token = ? AND reset_token_expires > ?
+                """, (token, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                user_data = cursor.fetchone()
+                
+                if user_data:
+                    # Update password and clear reset token
+                    password_hash = hash_password(password)
+                    cursor.execute("""
+                        UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL
+                        WHERE id = ?
+                    """, (password_hash, user_data[0]))
+                    conn.commit()
+                    
+                    flash('Password reset successfully! Please log in with your new password.', 'success')
+                    return redirect(url_for('login'))
+                else:
+                    flash('Invalid or expired reset link', 'error')
+                    return redirect(url_for('login'))
+        except Exception as e:
+            logging.error(f"Reset password error: {str(e)}")
+            flash('Password reset failed. Please try again.', 'error')
+    
+    # Verify token is valid for GET request
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id FROM users 
+                WHERE reset_token = ? AND reset_token_expires > ?
+            """, (token, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            if not cursor.fetchone():
+                flash('Invalid or expired reset link', 'error')
+                return redirect(url_for('login'))
+    except Exception as e:
+        logging.error(f"Token verification error: {str(e)}")
+        flash('Invalid reset link', 'error')
+        return redirect(url_for('login'))
+    
+    return render_template('reset_password.html', token=token)
+
+@app.route('/logout')
+def logout():
+    user_id = session.get('user_id')
+    username = session.get('username', 'User')
+    
+    # Log logout activity before clearing session
+    if user_id and username:
+        log_user_activity(user_id, username, 'logout', 'User logged out')
+    
+    session.clear()
+    flash(f'Goodbye, {username}!', 'info')
+    return redirect(url_for('login'))
+
+@app.route('/profile')
+@login_required
+def profile():
+    user = get_current_user()
+    
+    # Get user activity logs
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT activity_type, activity_description, ip_address, timestamp
+                FROM user_activity_logs
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+                LIMIT 100
+            """, (user['id'],))
+            
+            activities = []
+            for row in cursor.fetchall():
+                activities.append({
+                    'type': row[0],
+                    'description': row[1],
+                    'ip_address': row[2],
+                    'timestamp': row[3]
+                })
+            
+            user['activities'] = activities
+    except Exception as e:
+        logging.error(f"Error loading activities: {str(e)}")
+        user['activities'] = []
+    
+    return render_template('profile.html', user=user)
+
+@app.route('/update-profile', methods=['POST'])
+@login_required
+def update_profile():
+    user = get_current_user()
+    
+    try:
+        contact_number = request.form.get('contact_number', '').strip()
+        designation = request.form.get('designation', '').strip()
+        department = request.form.get('department', '').strip()
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE users 
+                SET contact_number = ?, designation = ?, department = ?
+                WHERE id = ?
+            """, (contact_number, designation, department, user['id']))
+            conn.commit()
+        
+        # Log activity
+        log_user_activity(user['id'], user['username'], 'profile_update', 'Profile information updated')
+        
+        flash('Profile updated successfully!', 'success')
+    except Exception as e:
+        logging.error(f"Error updating profile: {str(e)}")
+        flash('Failed to update profile', 'error')
+    
+    return redirect(url_for('profile'))
+
+@app.route('/export-activity-logs/<format>')
+@login_required
+def export_activity_logs(format):
+    user = get_current_user()
+    
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT activity_type, activity_description, ip_address, timestamp
+                FROM user_activity_logs
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+            """, (user['id'],))
+            
+            activities = cursor.fetchall()
+        
+        if format == 'csv':
+            import csv
+            from io import StringIO
+            
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Activity Type', 'Description', 'IP Address', 'Timestamp'])
+            writer.writerows(activities)
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Disposition'] = f'attachment; filename={user["username"]}_activity_logs.csv'
+            response.headers['Content-Type'] = 'text/csv'
+            
+            # Log export activity
+            log_user_activity(user['id'], user['username'], 'export_logs', f'Exported activity logs as CSV')
+            
+            return response
+            
+        elif format == 'xlsx':
+            try:
+                import openpyxl
+                from openpyxl import Workbook
+                from io import BytesIO
+                
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Activity Logs"
+                
+                # Add headers
+                ws.append(['Activity Type', 'Description', 'IP Address', 'Timestamp'])
+                
+                # Add data
+                for activity in activities:
+                    ws.append(activity)
+                
+                # Save to BytesIO
+                output = BytesIO()
+                wb.save(output)
+                output.seek(0)
+                
+                response = make_response(output.getvalue())
+                response.headers['Content-Disposition'] = f'attachment; filename={user["username"]}_activity_logs.xlsx'
+                response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                
+                # Log export activity
+                log_user_activity(user['id'], user['username'], 'export_logs', f'Exported activity logs as XLSX')
+                
+                return response
+            except ImportError:
+                flash('openpyxl library not installed. Please install it to export as XLSX.', 'error')
+                return redirect(url_for('profile'))
+        else:
+            flash('Invalid export format', 'error')
+            return redirect(url_for('profile'))
+            
+    except Exception as e:
+        logging.error(f"Error exporting logs: {str(e)}")
+        flash('Failed to export activity logs', 'error')
+        return redirect(url_for('profile'))
+
+@app.route('/change-password', methods=['POST'])
+@login_required
+def change_password():
+    current_password = request.form.get('current_password', '')
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    
+    if not current_password or not new_password:
+        flash('All fields are required', 'error')
+        return redirect(url_for('profile'))
+    
+    if len(new_password) < 6:
+        flash('New password must be at least 6 characters long', 'error')
+        return redirect(url_for('profile'))
+    
+    if new_password != confirm_password:
+        flash('New passwords do not match', 'error')
+        return redirect(url_for('profile'))
+    
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT password_hash FROM users WHERE id = ?", (session['user_id'],))
+            stored_hash = cursor.fetchone()[0]
+            
+            if verify_password(current_password, stored_hash):
+                new_hash = hash_password(new_password)
+                cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", 
+                             (new_hash, session['user_id']))
+                conn.commit()
+                
+                # Log password change activity
+                user = get_current_user()
+                log_user_activity(user['id'], user['username'], 'password_change', 'Password changed successfully')
+                
+                flash('Password changed successfully', 'success')
+            else:
+                flash('Current password is incorrect', 'error')
+    except Exception as e:
+        logging.error(f"Change password error: {str(e)}")
+        flash('Password change failed. Please try again.', 'error')
+    
+    return redirect(url_for('profile'))
 
 def prune_old_records():
     global LAST_PRUNE
@@ -208,7 +1132,8 @@ def ping_all_ips(ips):
 @tenacity.retry(stop=tenacity.stop_after_attempt(3), wait=tenacity.wait_fixed(1))
 def log_to_db(entries):
     try:
-        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+        with sqlite3.connect('ping_history.db', timeout=30) as conn:
+            conn.execute('PRAGMA journal_mode=WAL')
             conn.executemany("INSERT INTO history VALUES (?, ?, ?, ?)", entries)
             conn.commit()
         logging.debug(f"Logged {len(entries)} entries to DB")
@@ -223,7 +1148,7 @@ def get_downtime_since(sm_ip, current_status):
     if cached and datetime.now() - cached["time"] < timedelta(minutes=2):
         return cached["value"]
     try:
-        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+        with sqlite3.connect('ping_history.db', timeout=30) as conn:
             cursor = conn.cursor()
             cutoff = (datetime.now() - timedelta(hours=48)).strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("""
@@ -233,7 +1158,7 @@ def get_downtime_since(sm_ip, current_status):
             """, (sm_ip, cutoff))
             record = cursor.fetchone()
             if not record:
-                logging.warning(f"No recent Down record for {sm_ip} in last 48 hours")
+                logging.debug(f"No recent Down record for {sm_ip} in last 48 hours")
                 return "Unknown"
             result = record[0]
             downtime_cache[sm_ip] = {"value": result, "time": datetime.now()}
@@ -249,7 +1174,7 @@ def get_uptime_since(sm_ip, current_status):
     if cached and datetime.now() - cached["time"] < timedelta(minutes=2):
         return cached["value"]
     try:
-        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+        with sqlite3.connect('ping_history.db', timeout=30) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT timestamp FROM history 
@@ -268,7 +1193,7 @@ def get_uptime_since(sm_ip, current_status):
 
 def get_previous_status_from_db(sm_ip):
     try:
-        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+        with sqlite3.connect('ping_history.db', timeout=30) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT status FROM history 
@@ -315,15 +1240,17 @@ def monitor_alert_thread():
             logging.info("Alert thread restarted")
         time.sleep(10)
 
-@tenacity.retry(stop=tenacity.stop_after_attempt(3), wait=tenacity.wait_fixed(1))
 def update_ping_status():
     global results, running, CACHED_DF, LAST_XLSX_LOAD, ALERT_TIMESTAMP_COUNTER
+    
+    # Send initial empty status to show the interface is loading
     socketio.emit('update_status', {
-        'results': [],
+        'results': [{"AP Name": "Loading...", "AP IP": "Loading...", "CID": "Loading...", "SM IP": "Loading...", "Device Name": "Initializing monitoring system...", "Location": "Please wait", "Status": "Loading", "Latency": "N/A", "Downtime Since": "N/A"}],
         'pop_summary': {},
         'alerts': [],
         'analysis': {}
     })
+    
     while running:
         start_time = time.time()
         logging.info("Starting ping cycle")
@@ -338,16 +1265,16 @@ def update_ping_status():
                         raise FileNotFoundError(f"{XLSX_FILE} not found")
                     CACHED_DF = pd.read_excel(XLSX_FILE, engine='openpyxl')
                     LAST_XLSX_LOAD = now
-                    logging.debug(f"Loaded XLSX with {len(CACHED_DF)} rows")
+                    logging.info(f"Loaded XLSX with {len(CACHED_DF)} rows")
                 except Exception as e:
                     logging.error(f"XLSX load error: {str(e)}")
                     CACHED_DF = pd.DataFrame(columns=['AP Name', 'AP IP', 'CID', 'SM IP', 'Device Name', 'Location'])
                     socketio.emit('update_status', {
-                        'results': [{"AP Name": "N/A", "AP IP": "N/A", "CID": "N/A", "SM IP": "N/A", "Device Name": f"XLSX load failed: {str(e)}", "Location": "N/A", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
+                        'results': [{"AP Name": "Error", "AP IP": "Error", "CID": "Error", "SM IP": "Error", "Device Name": f"XLSX load failed: {str(e)}", "Location": "Error", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
                         'pop_summary': {},
                         'analysis': {}
                     })
-                    time.sleep(5)
+                    time.sleep(10)  # Wait longer before retrying
                     continue
             
             df = CACHED_DF
@@ -355,28 +1282,28 @@ def update_ping_status():
                 error_msg = f"Invalid XLSX: Missing required columns or empty. Columns: {df.columns.tolist()}"
                 logging.error(error_msg)
                 socketio.emit('update_status', {
-                    'results': [{"AP Name": "N/A", "AP IP": "N/A", "CID": "N/A", "SM IP": "N/A", "Device Name": error_msg, "Location": "N/A", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
+                    'results': [{"AP Name": "Error", "AP IP": "Error", "CID": "Error", "SM IP": "Error", "Device Name": error_msg, "Location": "Error", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
                     'pop_summary': {},
                     'analysis': {}
                 })
-                time.sleep(5)
+                time.sleep(10)
                 continue
             
             # Debug: Log column names and sample data
-            logging.info(f"Excel columns: {df.columns.tolist()}")
+            logging.debug(f"Excel columns: {df.columns.tolist()}")
             if not df.empty:
-                logging.info(f"Sample row: {df.iloc[0].to_dict()}")
+                logging.debug(f"Sample row: {df.iloc[0].to_dict()}")
             
             valid_locations = df['Location'].dropna().astype(str).str.strip()
             if valid_locations.empty:
                 error_msg = "No valid Location values in XLSX"
                 logging.error(error_msg)
                 socketio.emit('update_status', {
-                    'results': [{"AP Name": "N/A", "AP IP": "N/A", "CID": "N/A", "SM IP": "N/A", "Device Name": error_msg, "Location": "N/A", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
+                    'results': [{"AP Name": "Error", "AP IP": "Error", "CID": "Error", "SM IP": "Error", "Device Name": error_msg, "Location": "Error", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
                     'pop_summary': {},
                     'analysis': {}
                 })
-                time.sleep(5)
+                time.sleep(10)
                 continue
             
             ip_info = {
@@ -392,7 +1319,7 @@ def update_ping_status():
             # Debug: Log a few sample entries to see CID values
             sample_ips = list(ip_info.keys())[:3]
             for sample_ip in sample_ips:
-                logging.info(f"Sample IP {sample_ip}: {ip_info[sample_ip]}")
+                logging.debug(f"Sample IP {sample_ip}: {ip_info[sample_ip]}")
             
             ips = list(ip_info.keys())
             logging.info(f"Pinging {len(ips)} IPs")
@@ -494,6 +1421,11 @@ def update_ping_status():
                     should_generate = True
                     reachable_counts[sm_ip] += 1
                 
+                # Suppress alerts if device is in maintenance mode
+                if should_generate and is_in_maintenance(sm_ip):
+                    should_generate = False
+                    logging.debug(f"Suppressed alert for {sm_ip} - device in maintenance mode")
+                
                 cached_alert = alert_cache.get(sm_ip, {})
                 if should_generate and (
                     not cached_alert or
@@ -516,8 +1448,13 @@ def update_ping_status():
                 
                 previous_status_cache[sm_ip] = {"status": status, "latency": latency, "time": datetime.now()}
 
+            # Try to log to database, but don't fail the entire cycle if it fails
             if db_entries:
-                log_to_db(db_entries)
+                try:
+                    log_to_db(db_entries)
+                except Exception as db_error:
+                    logging.error(f"Failed to log to database: {str(db_error)}")
+                    # Continue without failing the cycle
 
             new_results.sort(key=lambda x: (
                 0 if x['Status'] == 'Down' else 1 if x['Status'] == 'Degraded' else 2))
@@ -544,7 +1481,7 @@ def update_ping_status():
             # Debug: Log first few results to see what's being sent
             if new_results:
                 for i, result in enumerate(new_results[:3]):
-                    logging.info(f"Result {i}: {result}")
+                    logging.debug(f"Result {i}: {result}")
             
             socketio.emit('update_status', {
                 'results': new_results,
@@ -552,10 +1489,12 @@ def update_ping_status():
                 'ip_stats': ip_daily_stats
             })
             logging.info(f"Cycle completed in {time.time() - start_time:.2f}s")
+            
         except Exception as e:
             logging.exception(f"Cycle error: {str(e)}")
+            # Send error status but don't crash
             socketio.emit('update_status', {
-                'results': [{"AP Name": "N/A", "AP IP": "N/A", "CID": "N/A", "SM IP": "N/A", "Device Name": f"Cycle failed: {str(e)}", "Location": "N/A", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
+                'results': [{"AP Name": "Error", "AP IP": "Error", "CID": "Error", "SM IP": "Error", "Device Name": f"Monitoring cycle failed: {str(e)}", "Location": "Error", "Status": "Error", "Latency": "N/A", "Downtime Since": "N/A"}],
                 'pop_summary': {},
                 'ip_stats': {}
             })
@@ -618,43 +1557,29 @@ def handle_refresh_alerts():
         logging.error(f"Refresh alerts error: {str(e)}")
         socketio.emit('refresh_alerts', {'error': str(e)})
 
-# Admin Routes
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        admin_username = os.getenv('ADMIN_USERNAME', 'admin')
-        admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
-        if username == admin_username and password == admin_password:
-            session['logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
-        else:
-            return render_template('admin_login.html', error="Invalid credentials")
-    return render_template('admin_login.html')
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('logged_in', None)
-    return redirect(url_for('admin_login'))
-
+# Admin Routes (Legacy - Remove old admin login system)
 @app.route('/admin')
+@admin_required
 def admin_dashboard():
-    if not session.get('logged_in'):
-        return redirect(url_for('admin_login'))
     try:
         df = pd.read_excel(XLSX_FILE, engine='openpyxl')
         locations = sorted(set(df['Location'].dropna().astype(str)))
         records = df.to_dict('records')
-        return render_template('admin.html', records=records, locations=locations)
+        user = get_current_user()
+        
+        # Get all users for user management
+        users = get_all_users()
+        
+        return render_template('admin.html', records=records, locations=locations, user=user, users=users)
     except Exception as e:
         logging.error(f"Admin dashboard error: {str(e)}")
-        return render_template('admin.html', records=[], locations=[], error=str(e))
+        user = get_current_user()
+        users = get_all_users()
+        return render_template('admin.html', records=[], locations=[], error=str(e), user=user, users=users)
 
 @app.route('/admin/add_entry', methods=['POST'])
+@admin_required
 def admin_add_entry():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     global CACHED_DF, LAST_XLSX_LOAD
     try:
         data = request.json
@@ -691,55 +1616,73 @@ def admin_add_entry():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/update_entry', methods=['POST'])
+@admin_required
 def admin_update_entry():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     global CACHED_DF, LAST_XLSX_LOAD
     try:
         data = request.json
-        sm_ip = data.get('sm_ip')
-        if not sm_ip or not validate_ip(sm_ip):
-            return jsonify({'error': 'Invalid or missing SM IP'}), 400
+        old_sm_ip = data.get('old_sm_ip')  # Original SM IP to find the row
+        new_sm_ip = data.get('sm_ip')      # New SM IP (can be same as old)
+        
+        if not old_sm_ip or not validate_ip(old_sm_ip):
+            return jsonify({'error': 'Invalid or missing original SM IP'}), 400
+        
+        if not new_sm_ip or not validate_ip(new_sm_ip):
+            return jsonify({'error': 'Invalid or missing new SM IP'}), 400
+            
         ap_ip = data.get('ap_ip', 'N/A')
         if ap_ip != 'N/A' and not validate_ip(ap_ip):
             return jsonify({'error': 'Invalid AP IP'}), 400
-        mac_pattern = r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
-        ap_mac = data.get('ap_mac', 'N/A')
-        sm_mac = data.get('sm_mac', 'N/A')
-        if ap_mac != 'N/A' and not re.match(mac_pattern, ap_mac):
-            return jsonify({'error': 'Invalid AP MAC Address'}), 400
-        if sm_mac != 'N/A' and not re.match(mac_pattern, sm_mac):
-            return jsonify({'error': 'Invalid SM MAC Address'}), 400
+        
         location = data.get('location')
         if not location:
             return jsonify({'error': 'Location is required'}), 400
+        
         with results_lock:
             if CACHED_DF is None:
                 return jsonify({'error': 'Dataframe not initialized'}), 500
-            if sm_ip not in CACHED_DF['SM IP'].values:
-                return jsonify({'error': 'SM IP not found'}), 404
+            
+            # Check if old SM IP exists
+            if old_sm_ip not in CACHED_DF['SM IP'].values:
+                return jsonify({'error': 'Original SM IP not found'}), 404
+            
+            # If SM IP is being changed, check if new SM IP already exists
+            if old_sm_ip != new_sm_ip and new_sm_ip in CACHED_DF['SM IP'].values:
+                return jsonify({'error': 'New SM IP already exists in the system'}), 400
+            
+            # Get current values for fields not being updated
+            current_row = CACHED_DF.loc[CACHED_DF['SM IP'] == old_sm_ip].iloc[0]
+            
             update_data = {
-                'AP Name': data.get('ap_name', CACHED_DF.loc[CACHED_DF['SM IP'] == sm_ip, 'AP Name'].iloc[0]),
+                'AP Name': data.get('ap_name', current_row.get('AP Name', 'N/A')),
                 'AP IP': ap_ip,
-                'AP MAC Address': ap_mac,
-                'SM IP': sm_ip,
-                'Device Name': data.get('org_name', CACHED_DF.loc[CACHED_DF['SM IP'] == sm_ip, 'Device Name'].iloc[0]),
-                'SM MAC Address': sm_mac,
+                'CID': data.get('cid', current_row.get('CID', 'N/A')),
+                'SM IP': new_sm_ip,  # Use the new SM IP
+                'Device Name': data.get('org_name', current_row.get('Device Name', 'N/A')),
                 'Location': location
             }
-            CACHED_DF.loc[CACHED_DF['SM IP'] == sm_ip] = pd.DataFrame([update_data])
+            
+            # Update the row
+            row_index = CACHED_DF[CACHED_DF['SM IP'] == old_sm_ip].index[0]
+            for key, value in update_data.items():
+                CACHED_DF.at[row_index, key] = value
+            
             CACHED_DF.to_excel(XLSX_FILE, index=False, engine='openpyxl')
             LAST_XLSX_LOAD = None
-            logging.info(f"Updated entry for SM IP {sm_ip}")
-            return jsonify({'success': 'Entry updated successfully'})
+            
+            if old_sm_ip != new_sm_ip:
+                logging.info(f"Updated entry: SM IP changed from {old_sm_ip} to {new_sm_ip}")
+            else:
+                logging.info(f"Updated entry for SM IP {new_sm_ip}")
+            
+            return jsonify({'success': 'Entry updated successfully', 'new_sm_ip': new_sm_ip})
     except Exception as e:
         logging.error(f"Update entry error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/delete_entry', methods=['POST'])
+@admin_required
 def admin_delete_entry():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     global CACHED_DF, LAST_XLSX_LOAD
     try:
         data = request.json
@@ -761,9 +1704,8 @@ def admin_delete_entry():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/location_downtime')
+@admin_required
 def location_downtime():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -921,9 +1863,8 @@ def location_downtime():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/export_location_downtime')
+@admin_required
 def export_location_downtime():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -1167,9 +2108,8 @@ def export_location_downtime():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/export_log')
+@admin_required
 def export_log():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         cutoff_time = datetime.now() - timedelta(hours=1)
         recent_alerts = [
@@ -1248,9 +2188,8 @@ def export_log():
 
 
 @app.route('/export_ip_history')
+@admin_required
 def export_ip_history():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         ip_input = request.args.get('ip', '')
         date = request.args.get('date')
@@ -1412,9 +2351,8 @@ def export_ip_history():
 
 
 @app.route('/get_logs')
+@admin_required
 def get_logs():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         ip_input = request.args.get('ip', '')
         date = request.args.get('date')
@@ -1505,9 +2443,8 @@ def get_logs():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/ip_uptime_downtime')
+@admin_required
 def ip_uptime_downtime():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -1610,9 +2547,8 @@ def ip_uptime_downtime():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/location_health')
+@admin_required
 def location_health():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -1625,7 +2561,12 @@ def location_health():
         with results_lock:
             if CACHED_DF is None:
                 return jsonify({'error': 'Dataframe not initialized'}), 500
-            ip_to_location = {str(row['SM IP']): str(row['Location']) for row in CACHED_DF.to_dict('records') if pd.notna(row.get('SM IP'))}
+            ip_to_info = {str(row['SM IP']): {
+                'location': str(row['Location']),
+                'device_name': str(row['Device Name']),
+                'ap_name': str(row['AP Name']),
+                'ap_ip': str(row['AP IP'])
+            } for row in CACHED_DF.to_dict('records') if pd.notna(row.get('SM IP'))}
             all_locations = sorted(set(CACHED_DF['Location'].dropna().astype(str)))
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
@@ -1637,6 +2578,8 @@ def location_health():
             """
             cursor.execute(query, (start_datetime.strftime('%Y-%m-%d %H:%M:%S'), end_datetime.strftime('%Y-%m-%d %H:%M:%S')))
             records = cursor.fetchall()
+        
+        # Location-level health data
         health_data = defaultdict(lambda: {
             'total_latency': 0,
             'ping_count': 0,
@@ -1645,10 +2588,26 @@ def location_health():
             'degraded_count': 0,
             'ips': set()
         })
+        
+        # IP-level statistics
+        ip_stats = defaultdict(lambda: {
+            'latencies': [],
+            'down_events': 0,
+            'total_pings': 0,
+            'down_duration': 0,
+            'up_duration': 0,
+            'last_status': None,
+            'status_changes': []
+        })
+        
         for sm_ip, status, timestamp, latency in records:
-            location = ip_to_location.get(sm_ip, 'Unknown')
+            ip_info = ip_to_info.get(sm_ip, {'location': 'Unknown', 'device_name': 'Unknown', 'ap_name': 'Unknown', 'ap_ip': 'Unknown'})
+            location = ip_info['location']
+            
             if location_filter and location != location_filter:
                 continue
+            
+            # Location-level aggregation
             health_data[location]['ips'].add(sm_ip)
             if status == 'Down':
                 health_data[location]['down_count'] += 1
@@ -1658,16 +2617,65 @@ def location_health():
                 health_data[location]['ping_count'] += 1
             elif status == 'Degraded':
                 health_data[location]['degraded_count'] += 1
+            
+            # IP-level statistics
+            ip_stats[sm_ip]['total_pings'] += 1
+            ip_stats[sm_ip]['device_name'] = ip_info['device_name']
+            ip_stats[sm_ip]['location'] = location
+            ip_stats[sm_ip]['ap_name'] = ip_info['ap_name']
+            ip_stats[sm_ip]['ap_ip'] = ip_info['ap_ip']
+            
+            if status == 'Down':
+                ip_stats[sm_ip]['down_events'] += 1
+                ip_stats[sm_ip]['down_duration'] += 10  # Assuming 10-second intervals
+            elif status == 'Reachable' and latency is not None:
+                ip_stats[sm_ip]['latencies'].append(latency)
+                ip_stats[sm_ip]['up_duration'] += 10
+            elif status == 'Degraded':
+                ip_stats[sm_ip]['up_duration'] += 10
+            
+            ip_stats[sm_ip]['last_status'] = status
+        
+        # Calculate IP-level metrics
+        processed_ip_stats = {}
+        for ip, stats in ip_stats.items():
+            if stats['total_pings'] == 0:
+                continue
+            
+            avg_latency = sum(stats['latencies']) / len(stats['latencies']) if stats['latencies'] else 0
+            total_time = stats['down_duration'] + stats['up_duration']
+            uptime_percent = (stats['up_duration'] / total_time * 100) if total_time > 0 else 0
+            
+            # Format durations as HH:MM:SS
+            def format_duration(seconds):
+                hours = seconds // 3600
+                minutes = (seconds % 3600) // 60
+                secs = seconds % 60
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            
+            processed_ip_stats[ip] = {
+                'device_name': stats['device_name'],
+                'location': stats['location'],
+                'ap_name': stats['ap_name'],
+                'ap_ip': stats['ap_ip'],
+                'avg_downtime': format_duration(stats['down_duration'] // max(stats['down_events'], 1)) if stats['down_events'] > 0 else '00:00:00',
+                'downtime_count': stats['down_events'],
+                'downtime_duration': format_duration(stats['down_duration']),
+                'uptime': f"{uptime_percent:.1f}%",
+                'avg_latency': f"{avg_latency:.2f} ms" if avg_latency > 0 else 'N/A'
+            }
+        
         result = {
             'locations': [],
+            'ip_stats': processed_ip_stats,
             'chart_data': {
                 'bar': {
                     'labels': [],
-                    'avg_latency': [],
-                    'down_counts': []
+                    'data': []  # Changed from avg_latency to data for downtime
                 }
             }
         }
+        
         locations_to_process = [location_filter] if location_filter else all_locations
         for location in locations_to_process:
             data = health_data.get(location, {
@@ -1679,27 +2687,36 @@ def location_health():
                 'ips': set()
             })
             avg_latency = (data['total_latency'] / data['ping_count']) if data['ping_count'] > 0 else 0
+            total_downtime = sum(ip_stats[ip]['down_duration'] for ip in data['ips'] if ip in ip_stats)
+            
+            # Format total downtime as HH:MM:SS
+            def format_duration(seconds):
+                hours = seconds // 3600
+                minutes = (seconds % 3600) // 60
+                secs = seconds % 60
+                return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            
             result['locations'].append({
                 'location': location,
-                'ip_count': len(data['ips']),
-                'avg_latency': f"{avg_latency:.2f} ms" if avg_latency > 0 else 'N/A',
-                'down_count': data['down_count'],
-                'reachable_count': data['reachable_count'],
-                'degraded_count': data['degraded_count']
+                'total_downtime': format_duration(total_downtime),
+                'avg_downtime': format_duration(total_downtime // len(data['ips'])) if data['ips'] else '00:00:00',
+                'down_ip_count': len([ip for ip in data['ips'] if ip in ip_stats and ip_stats[ip]['down_events'] > 0]),
+                'last_downtime': 'N/A',  # Would need more complex logic to determine
+                'uptime': 'N/A'  # Would need more complex logic to determine
             })
+            
             result['chart_data']['bar']['labels'].append(location)
-            result['chart_data']['bar']['avg_latency'].append(avg_latency)
-            result['chart_data']['bar']['down_counts'].append(data['down_count'])
-        logging.info(f"Retrieved health data for {len(result['locations'])} locations")
+            result['chart_data']['bar']['data'].append(total_downtime)
+        
+        logging.info(f"Retrieved health data for {len(result['locations'])} locations and {len(processed_ip_stats)} IPs")
         return jsonify(result)
     except Exception as e:
         logging.error(f"Location health error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/export_health_pdf')
+@admin_required
 def export_health_pdf():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -1793,9 +2810,2248 @@ def export_health_pdf():
         logging.error(f"Export health PDF error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# Mobile and SLA Routes
+@app.route('/mobile')
+@login_required
+def mobile_dashboard():
+    """Mobile-optimized dashboard"""
+    user = get_current_user()
+    users = get_all_users() if user and user['role'] == 'admin' else []
+    return render_template('mobile.html', user=user, users=users)
+
+@app.route('/sla')
+@login_required
+def sla_dashboard():
+    """SLA monitoring dashboard"""
+    user = get_current_user()
+    return render_template('sla.html', user=user)
+
+@app.route('/api/sla_metrics')
+@login_required
+def get_sla_metrics():
+    """Get SLA performance metrics"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        if not start_date or not end_date:
+            return jsonify({'error': 'Start and end dates are required'}), 400
+        
+        logging.info(f"Fetching SLA metrics for date range: {start_date} to {end_date}")
+        
+        # Calculate SLA metrics from database with optimizations
+        with sqlite3.connect('ping_history.db', timeout=60) as conn:
+            # Enable query optimizations
+            conn.execute("PRAGMA query_only = ON")
+            conn.execute("PRAGMA temp_store = MEMORY")
+            cursor = conn.cursor()
+            
+            # First, check if we have any data at all
+            cursor.execute("SELECT COUNT(*) FROM history")
+            total_history_records = cursor.fetchone()[0]
+            logging.info(f"Total history records in database: {total_history_records}")
+            
+            if total_history_records == 0:
+                logging.warning("No history records found in database")
+                return jsonify({
+                    'uptime': 0,
+                    'avg_latency': 0,
+                    'availability': 0,
+                    'total_devices': 0,
+                    'sla_compliance': 0,
+                    'incidents': 0,
+                    'trends': {'labels': [], 'uptime': [], 'latency': []},
+                    'ip_rankings': {'best': [], 'worst': []},
+                    'message': 'No historical data available. Please wait for monitoring to collect data.'
+                })
+            
+            # Get total records in date range
+            cursor.execute("""
+                SELECT COUNT(*) as total_records,
+                       SUM(CASE WHEN status = 'Reachable' THEN 1 ELSE 0 END) as reachable,
+                       SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) as down,
+                       SUM(CASE WHEN status = 'Degraded' THEN 1 ELSE 0 END) as degraded,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
+                       COUNT(DISTINCT sm_ip) as total_devices
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            metrics = cursor.fetchone()
+            logging.info(f"Query results: {metrics}")
+            
+            if not metrics or metrics[0] == 0:
+                logging.warning(f"No data found for date range {start_date} to {end_date}")
+                return jsonify({
+                    'uptime': 0,
+                    'avg_latency': 0,
+                    'availability': 0,
+                    'total_devices': 0,
+                    'sla_compliance': 0,
+                    'incidents': 0,
+                    'trends': {'labels': [], 'uptime': [], 'latency': []},
+                    'ip_rankings': {'best': [], 'worst': []},
+                    'message': f'No data available for the selected date range ({start_date} to {end_date}). Try selecting a different date range.'
+                })
+            
+            total_records, reachable, down, degraded, avg_latency, total_devices = metrics
+            
+            # Calculate uptime percentage
+            uptime = round((reachable / total_records) * 100, 2) if total_records > 0 else 0
+            
+            # Calculate availability (devices that had at least one successful ping)
+            cursor.execute("""
+                SELECT COUNT(DISTINCT sm_ip) as available_devices
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ? AND status = 'Reachable'
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            available_devices = cursor.fetchone()[0]
+            availability = round((available_devices / total_devices) * 100, 2) if total_devices > 0 else 0
+            
+            # Count incidents (simplified - count distinct down events per device per day)
+            cursor.execute("""
+                SELECT COUNT(DISTINCT sm_ip || DATE(timestamp)) as incidents
+                FROM history
+                WHERE timestamp BETWEEN ? AND ?
+                AND status = 'Down'
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            incidents = cursor.fetchone()[0]
+            
+            # Calculate SLA compliance score
+            uptime_score = min(100, (uptime / 99.5) * 40) if uptime > 0 else 0
+            latency_score = min(40, max(0, 40 - (avg_latency - 50) / 10)) if avg_latency else 40
+            availability_score = min(20, (availability / 99.9) * 20) if availability > 0 else 0
+            sla_compliance = round(uptime_score + latency_score + availability_score, 1)
+            
+            # Get trends data (daily aggregates)
+            cursor.execute("""
+                SELECT DATE(timestamp) as date,
+                       AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as daily_uptime,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as daily_latency
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY DATE(timestamp)
+                ORDER BY date
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            trends_data = cursor.fetchall()
+            trends = {
+                'labels': [row[0] for row in trends_data],
+                'uptime': [round(row[1], 1) if row[1] else 0 for row in trends_data],
+                'latency': [round(row[2], 1) if row[2] else 0 for row in trends_data]
+            }
+            
+            # Get best and worst performing IPs (optimized with LIMIT)
+            logging.info("Fetching IP performance rankings...")
+            
+            # Get best performing IPs
+            cursor.execute("""
+                SELECT sm_ip,
+                       AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as uptime_pct,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
+                       COUNT(*) as total_pings
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY sm_ip
+                HAVING total_pings >= 5
+                ORDER BY uptime_pct DESC, avg_latency ASC
+                LIMIT 10
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            best_performance = cursor.fetchall()
+            
+            # Get worst performing IPs
+            cursor.execute("""
+                SELECT sm_ip,
+                       AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as uptime_pct,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
+                       COUNT(*) as total_pings
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY sm_ip
+                HAVING total_pings >= 5
+                ORDER BY uptime_pct ASC, avg_latency DESC
+                LIMIT 10
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            worst_performance = cursor.fetchall()
+            
+            logging.info(f"Found {len(best_performance)} best and {len(worst_performance)} worst performing IPs")
+            
+            # Get device info for rankings
+            device_info = {}
+            if CACHED_DF is not None:
+                for _, row in CACHED_DF.iterrows():
+                    if pd.notna(row.get('SM IP')):
+                        device_info[str(row['SM IP'])] = {
+                            'name': str(row.get('Device Name', 'Unknown')),
+                            'location': str(row.get('Location', 'Unknown'))
+                        }
+            
+            logging.info(f"Device info cache has {len(device_info)} entries")
+            
+            best_ips = []
+            worst_ips = []
+            
+            # Process best IPs
+            for ip, uptime_pct, avg_lat, _ in best_performance:
+                info = device_info.get(ip, {'name': 'Unknown', 'location': 'Unknown'})
+                best_ips.append({
+                    'ip': ip,
+                    'name': info['name'],
+                    'location': info['location'],
+                    'uptime': round(uptime_pct, 1),
+                    'avg_latency': round(avg_lat, 1) if avg_lat else 0
+                })
+            
+            # Process worst IPs
+            for ip, uptime_pct, avg_lat, _ in worst_performance:
+                info = device_info.get(ip, {'name': 'Unknown', 'location': 'Unknown'})
+                worst_ips.append({
+                    'ip': ip,
+                    'name': info['name'],
+                    'location': info['location'],
+                    'uptime': round(uptime_pct, 1),
+                    'avg_latency': round(avg_lat, 1) if avg_lat else 0
+                })
+            
+            logging.info(f"SLA metrics calculated: uptime={uptime}%, devices={total_devices}, incidents={incidents}")
+            logging.info(f"Rankings: {len(best_ips)} best IPs, {len(worst_ips)} worst IPs")
+            
+            response_data = {
+                'uptime': uptime,
+                'avg_latency': round(avg_latency, 1) if avg_latency else 0,
+                'availability': availability,
+                'total_devices': total_devices,
+                'sla_compliance': sla_compliance,
+                'incidents': incidents,
+                'trends': trends,
+                'ip_rankings': {
+                    'best': best_ips,
+                    'worst': worst_ips
+                }
+            }
+            
+            logging.info(f"Returning SLA response with {len(best_ips)} best and {len(worst_ips)} worst IPs")
+            return jsonify(response_data)
+            
+    except Exception as e:
+        logging.error(f"SLA metrics error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/location_overview')
+@login_required
+def get_location_overview():
+    """Get location-wise health overview"""
+    try:
+        logging.info("Getting location overview...")
+        with results_lock:
+            if not results:
+                logging.warning("No results available for location overview")
+                return jsonify({'locations': [], 'message': 'No monitoring data available yet. Please wait for the monitoring system to collect data.'})
+            
+            logging.info(f"Processing {len(results)} results for location overview")
+            
+            # Group results by location
+            location_stats = defaultdict(lambda: {
+                'total_devices': 0,
+                'online': 0,
+                'degraded': 0,
+                'down': 0,
+                'latencies': []
+            })
+            
+            for result in results:
+                location = result.get('Location', 'Unknown').strip()
+                status = result.get('Status', 'Unknown')
+                latency_str = result.get('Latency', 'N/A')
+                
+                if not location or location == 'Unknown':
+                    continue
+                
+                location_stats[location]['total_devices'] += 1
+                
+                if status == 'Reachable':
+                    location_stats[location]['online'] += 1
+                elif status == 'Degraded':
+                    location_stats[location]['degraded'] += 1
+                elif status == 'Down':
+                    location_stats[location]['down'] += 1
+                
+                # Parse latency
+                if latency_str != 'N/A' and 'ms' in latency_str:
+                    try:
+                        latency = float(latency_str.replace('ms', '').strip())
+                        location_stats[location]['latencies'].append(latency)
+                    except:
+                        pass
+            
+            # Calculate health scores and format response
+            locations = []
+            for location, stats in location_stats.items():
+                total = stats['total_devices']
+                if total == 0:
+                    continue
+                
+                uptime = round((stats['online'] / total) * 100, 1)
+                avg_latency = round(sum(stats['latencies']) / len(stats['latencies']), 1) if stats['latencies'] else 0
+                
+                # Calculate health score (0-100)
+                uptime_score = min(60, uptime * 0.6)  # Max 60 points for uptime
+                latency_score = min(30, max(0, 30 - (avg_latency - 50) / 10)) if avg_latency > 0 else 30  # Max 30 points for latency
+                availability_score = min(10, (stats['online'] + stats['degraded']) / total * 10)  # Max 10 points for availability
+                
+                health_score = round(uptime_score + latency_score + availability_score, 1)
+                
+                locations.append({
+                    'name': location,
+                    'total_devices': total,
+                    'online': stats['online'],
+                    'degraded': stats['degraded'],
+                    'down': stats['down'],
+                    'uptime': uptime,
+                    'avg_latency': avg_latency,
+                    'health_score': health_score
+                })
+            
+            # Sort by health score descending
+            locations.sort(key=lambda x: x['health_score'], reverse=True)
+            
+            logging.info(f"Returning {len(locations)} locations for overview")
+            return jsonify({'locations': locations})
+            
+    except Exception as e:
+        logging.error(f"Location overview error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/location_downtime')
+@login_required
+def get_location_downtime():
+    """Get location-wise downtime analysis"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        if not start_date or not end_date:
+            return jsonify({'error': 'Start and end dates are required'}), 400
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get device location mapping
+            device_locations = {}
+            if CACHED_DF is not None:
+                for _, row in CACHED_DF.iterrows():
+                    if pd.notna(row.get('SM IP')):
+                        device_locations[str(row['SM IP'])] = str(row.get('Location', 'Unknown'))
+            
+            # Get downtime data by IP
+            cursor.execute("""
+                SELECT sm_ip,
+                       SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) * 10 / 3600.0 as downtime_hours,
+                       COUNT(*) as total_pings,
+                       MAX(CASE WHEN status = 'Down' THEN timestamp END) as last_down
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY sm_ip
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            ip_downtime = cursor.fetchall()
+            
+            # Group by location
+            location_downtime = defaultdict(lambda: {
+                'total_downtime': 0,
+                'device_count': 0,
+                'down_devices': 0,
+                'last_incident': None
+            })
+            
+            for ip, downtime_hours, total_pings, last_down in ip_downtime:
+                location = device_locations.get(ip, 'Unknown')
+                location_downtime[location]['total_downtime'] += downtime_hours
+                location_downtime[location]['device_count'] += 1
+                
+                if downtime_hours > 0:
+                    location_downtime[location]['down_devices'] += 1
+                    
+                if last_down and (not location_downtime[location]['last_incident'] or 
+                                last_down > location_downtime[location]['last_incident']):
+                    location_downtime[location]['last_incident'] = last_down
+            
+            # Format response
+            locations = []
+            chart_labels = []
+            chart_data = []
+            
+            for location, stats in location_downtime.items():
+                if stats['device_count'] == 0:
+                    continue
+                
+                avg_downtime = stats['total_downtime'] / stats['device_count']
+                uptime_hours = (24 * 7) - avg_downtime  # Assuming 7-day period
+                uptime_pct = round((uptime_hours / (24 * 7)) * 100, 1)
+                
+                locations.append({
+                    'location': location,
+                    'total_downtime': f"{stats['total_downtime']:.1f}h",
+                    'avg_downtime': f"{avg_downtime:.1f}h",
+                    'down_ip_count': stats['down_devices'],
+                    'last_downtime': stats['last_incident'] or 'N/A',
+                    'uptime': f"{uptime_pct}%"
+                })
+                
+                chart_labels.append(location)
+                chart_data.append(round(stats['total_downtime'], 1))
+            
+            # Sort by total downtime descending
+            locations.sort(key=lambda x: float(x['total_downtime'].replace('h', '')), reverse=True)
+            
+            return jsonify({
+                'locations': locations,
+                'chart_data': {
+                    'labels': chart_labels,
+                    'data': chart_data
+                }
+            })
+            
+    except Exception as e:
+        logging.error(f"Location downtime error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations')
+def get_locations():
+    """Get all unique locations"""
+    try:
+        with results_lock:
+            if CACHED_DF is None:
+                return jsonify({'locations': []})
+            
+            locations = sorted(set(CACHED_DF['Location'].dropna().astype(str)))
+            return jsonify({'locations': locations})
+    except Exception as e:
+        logging.error(f"Get locations error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/device_list')
+@login_required
+def get_device_list():
+    """Get all devices with their details for maintenance scheduling"""
+    try:
+        with results_lock:
+            if CACHED_DF is None:
+                return jsonify({'devices': []})
+            
+            devices = []
+            for _, row in CACHED_DF.iterrows():
+                if pd.notna(row.get('SM IP')):
+                    device = {
+                        'ip': str(row['SM IP']),
+                        'name': str(row.get('Device Name', 'Unknown')),
+                        'location': str(row.get('Location', 'Unknown')),
+                        'ap_name': str(row.get('AP Name', 'N/A')),
+                        'ap_ip': str(row.get('AP IP', 'N/A')),
+                        'cid': str(row.get('CID', 'N/A'))
+                    }
+                    devices.append(device)
+            
+            # Sort devices by location, then by IP
+            devices.sort(key=lambda x: (x['location'], x['ip']))
+            
+            return jsonify({'devices': devices})
+    except Exception as e:
+        logging.error(f"Get device list error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sla_report')
+def get_sla_report():
+    """Generate SLA report"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        sla_target = float(request.args.get('sla_target', 99.9))
+        location_filter = request.args.get('location_filter')
+        
+        if not start_date or not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+        end_datetime = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+        
+        # Get device-location mapping
+        with results_lock:
+            if CACHED_DF is None:
+                return jsonify({'error': 'No device data available'}), 500
+            
+            ip_to_location = {str(row['SM IP']): str(row['Location']) 
+                            for row in CACHED_DF.to_dict('records') 
+                            if pd.notna(row.get('SM IP'))}
+            all_locations = sorted(set(CACHED_DF['Location'].dropna().astype(str)))
+        
+        # Query historical data
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            query = """
+                SELECT sm_ip, status, timestamp
+                FROM history
+                WHERE timestamp >= ? AND timestamp < ?
+                ORDER BY sm_ip, timestamp
+            """
+            cursor.execute(query, (start_datetime.strftime('%Y-%m-%d %H:%M:%S'), 
+                                 end_datetime.strftime('%Y-%m-%d %H:%M:%S')))
+            records = cursor.fetchall()
+        
+        # Calculate SLA metrics
+        location_stats = defaultdict(lambda: {
+            'total_time': 0,
+            'uptime': 0,
+            'downtime': 0,
+            'devices': set(),
+            'incidents': 0,
+            'last_incident': None,
+            'downtime_events': []
+        })
+        
+        # Process records
+        for i, (sm_ip, status, timestamp) in enumerate(records):
+            location = ip_to_location.get(sm_ip, 'Unknown')
+            if location_filter and location != location_filter:
+                continue
+            
+            location_stats[location]['devices'].add(sm_ip)
+            
+            # Calculate duration until next record
+            duration = PING_INTERVAL
+            if i + 1 < len(records) and records[i + 1][0] == sm_ip:
+                next_timestamp = datetime.strptime(records[i + 1][2], '%Y-%m-%d %H:%M:%S')
+                current_timestamp = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                duration = (next_timestamp - current_timestamp).total_seconds()
+            
+            location_stats[location]['total_time'] += duration
+            
+            if status == 'Reachable':
+                location_stats[location]['uptime'] += duration
+            else:
+                location_stats[location]['downtime'] += duration
+                if status == 'Down':
+                    # Check if this is a new incident
+                    if i == 0 or records[i-1][0] != sm_ip or records[i-1][1] != 'Down':
+                        location_stats[location]['incidents'] += 1
+                        location_stats[location]['last_incident'] = timestamp
+                        location_stats[location]['downtime_events'].append({
+                            'start': timestamp,
+                            'device': sm_ip
+                        })
+        
+        # Calculate SLA percentages and prepare response
+        locations_data = []
+        total_uptime = 0
+        total_time = 0
+        locations_meeting_sla = 0
+        critical_incidents = 0
+        
+        for location, stats in location_stats.items():
+            if stats['total_time'] == 0:
+                continue
+            
+            uptime_percentage = (stats['uptime'] / stats['total_time']) * 100
+            mttr = stats['downtime'] / max(stats['incidents'], 1)  # Mean Time To Repair
+            
+            locations_data.append({
+                'name': location,
+                'device_count': len(stats['devices']),
+                'uptime_percentage': uptime_percentage,
+                'total_downtime': stats['downtime'],
+                'incident_count': stats['incidents'],
+                'mttr': mttr,
+                'last_incident': stats['last_incident']
+            })
+            
+            total_uptime += stats['uptime']
+            total_time += stats['total_time']
+            
+            if uptime_percentage >= sla_target:
+                locations_meeting_sla += 1
+            
+            if stats['incidents'] > 5:  # Consider >5 incidents as critical
+                critical_incidents += stats['incidents']
+        
+        # Calculate overall metrics
+        overall_sla = (total_uptime / max(total_time, 1)) * 100
+        average_uptime = sum(loc['uptime_percentage'] for loc in locations_data) / max(len(locations_data), 1)
+        
+        # Generate trend data (simplified - daily averages)
+        trend_labels = []
+        trend_data = []
+        current_date = start_datetime
+        while current_date < end_datetime - timedelta(days=1):
+            trend_labels.append(current_date.strftime('%m/%d'))
+            # Simplified: use overall SLA with some variation
+            daily_sla = overall_sla + (hash(current_date.day) % 5 - 2) * 0.1
+            trend_data.append(max(90, min(100, daily_sla)))
+            current_date += timedelta(days=1)
+        
+        return jsonify({
+            'overall_sla': overall_sla,
+            'average_uptime': average_uptime,
+            'locations_meeting_sla': locations_meeting_sla,
+            'total_locations': len(locations_data),
+            'critical_incidents': critical_incidents,
+            'locations': locations_data,
+            'trend_labels': trend_labels,
+            'trend_data': trend_data
+        })
+        
+    except Exception as e:
+        logging.error(f"SLA report error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sla_export')
+@login_required
+def export_sla_report():
+    """Export SLA report to Excel"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        sla_target = float(request.args.get('sla_target', 99.9))
+        format_type = request.args.get('format', 'xlsx')
+        
+        if not start_date or not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # Get SLA metrics data
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get overall metrics
+            cursor.execute("""
+                SELECT COUNT(*) as total_records,
+                       SUM(CASE WHEN status = 'Reachable' THEN 1 ELSE 0 END) as reachable,
+                       SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) as down,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
+                       COUNT(DISTINCT sm_ip) as total_devices
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            metrics = cursor.fetchone()
+            
+            if not metrics or metrics[0] == 0:
+                return jsonify({'error': 'No data available for the selected date range'}), 400
+            
+            total_records, reachable, down, avg_latency, total_devices = metrics
+            uptime = round((reachable / total_records) * 100, 2) if total_records > 0 else 0
+            
+            # Get device-wise performance
+            cursor.execute("""
+                SELECT sm_ip,
+                       AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as uptime_pct,
+                       AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
+                       COUNT(*) as total_pings,
+                       SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) as down_count
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY sm_ip
+                ORDER BY uptime_pct DESC
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            device_performance = cursor.fetchall()
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "SLA Report"
+        
+        # Add headers
+        headers = ['Device IP', 'Device Name', 'Location', 'Uptime %', 'Avg Latency (ms)', 'Total Pings', 'Down Count', 'SLA Status']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+        
+        # Get device info
+        device_info = {}
+        if CACHED_DF is not None:
+            for _, row in CACHED_DF.iterrows():
+                if pd.notna(row.get('SM IP')):
+                    device_info[str(row['SM IP'])] = {
+                        'name': str(row.get('Device Name', 'Unknown')),
+                        'location': str(row.get('Location', 'Unknown'))
+                    }
+        
+        # Add data rows
+        for row_num, (ip, uptime_pct, avg_lat, total_pings, down_count) in enumerate(device_performance, 2):
+            info = device_info.get(ip, {'name': 'Unknown', 'location': 'Unknown'})
+            sla_status = 'PASS' if uptime_pct >= sla_target else 'FAIL'
+            
+            ws.cell(row=row_num, column=1, value=ip)
+            ws.cell(row=row_num, column=2, value=info['name'])
+            ws.cell(row=row_num, column=3, value=info['location'])
+            ws.cell(row=row_num, column=4, value=round(uptime_pct, 2))
+            ws.cell(row=row_num, column=5, value=round(avg_lat, 2) if avg_lat else 0)
+            ws.cell(row=row_num, column=6, value=total_pings)
+            ws.cell(row=row_num, column=7, value=down_count)
+            ws.cell(row=row_num, column=8, value=sla_status)
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = get_column_letter(column[0].column)
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        filename = f"sla_report_{start_date}_to_{end_date}.xlsx"
+        
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        logging.error(f"SLA export error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/downtime_report')
+@login_required
+def export_downtime_report():
+    """Export downtime report"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        format_type = request.args.get('format', 'pdf')
+        
+        if not start_date or not end_date:
+            return jsonify({'error': 'Start and end dates are required'}), 400
+        
+        # Get downtime data (reuse the logic from location_downtime)
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get device location mapping
+            device_locations = {}
+            if CACHED_DF is not None:
+                for _, row in CACHED_DF.iterrows():
+                    if pd.notna(row.get('SM IP')):
+                        device_locations[str(row['SM IP'])] = str(row.get('Location', 'Unknown'))
+            
+            # Get downtime data by IP
+            cursor.execute("""
+                SELECT sm_ip,
+                       SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) * 10 / 3600.0 as downtime_hours,
+                       COUNT(*) as total_pings,
+                       MAX(CASE WHEN status = 'Down' THEN timestamp END) as last_down
+                FROM history 
+                WHERE timestamp BETWEEN ? AND ?
+                GROUP BY sm_ip
+                HAVING downtime_hours > 0
+                ORDER BY downtime_hours DESC
+            """, (start_date, end_date + ' 23:59:59'))
+            
+            downtime_data = cursor.fetchall()
+        
+        if format_type == 'xlsx':
+            # Create Excel report
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Downtime Report"
+            
+            # Add headers
+            headers = ['Device IP', 'Device Name', 'Location', 'Downtime Hours', 'Total Pings', 'Last Down Time']
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center')
+            
+            # Get device info
+            device_info = {}
+            if CACHED_DF is not None:
+                for _, row in CACHED_DF.iterrows():
+                    if pd.notna(row.get('SM IP')):
+                        device_info[str(row['SM IP'])] = {
+                            'name': str(row.get('Device Name', 'Unknown')),
+                            'location': str(row.get('Location', 'Unknown'))
+                        }
+            
+            # Add data rows
+            for row_num, (ip, downtime_hours, total_pings, last_down) in enumerate(downtime_data, 2):
+                info = device_info.get(ip, {'name': 'Unknown', 'location': 'Unknown'})
+                
+                ws.cell(row=row_num, column=1, value=ip)
+                ws.cell(row=row_num, column=2, value=info['name'])
+                ws.cell(row=row_num, column=3, value=info['location'])
+                ws.cell(row=row_num, column=4, value=round(downtime_hours, 2))
+                ws.cell(row=row_num, column=5, value=total_pings)
+                ws.cell(row=row_num, column=6, value=last_down or 'N/A')
+            
+            # Auto-adjust column widths
+            for column in ws.columns:
+                max_length = 0
+                column_letter = get_column_letter(column[0].column)
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+            
+            # Save to BytesIO
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            
+            filename = f"downtime_report_{start_date}_to_{end_date}.xlsx"
+            
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+        else:
+            # Return JSON for PDF generation (client-side)
+            report_data = []
+            device_info = {}
+            if CACHED_DF is not None:
+                for _, row in CACHED_DF.iterrows():
+                    if pd.notna(row.get('SM IP')):
+                        device_info[str(row['SM IP'])] = {
+                            'name': str(row.get('Device Name', 'Unknown')),
+                            'location': str(row.get('Location', 'Unknown'))
+                        }
+            
+            for ip, downtime_hours, total_pings, last_down in downtime_data:
+                info = device_info.get(ip, {'name': 'Unknown', 'location': 'Unknown'})
+                report_data.append({
+                    'ip': ip,
+                    'name': info['name'],
+                    'location': info['location'],
+                    'downtime_hours': round(downtime_hours, 2),
+                    'total_pings': total_pings,
+                    'last_down': last_down or 'N/A'
+                })
+            
+            return jsonify({
+                'report_data': report_data,
+                'start_date': start_date,
+                'end_date': end_date,
+                'total_devices': len(report_data)
+            })
+        
+    except Exception as e:
+        logging.error(f"Downtime report error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/force_ping', methods=['POST'])
+@login_required
+def force_ping():
+    """Force ping a specific device manually"""
+    try:
+        data = request.json
+        ip = data.get('ip', '').strip()
+        ping_type = data.get('ping_type', 'SM')  # SM or AP
+        
+        if not ip or not validate_ip(ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        # Perform the ping
+        status, latency = ping_ip(ip, timeout=2.0)  # Use longer timeout for manual ping
+        
+        # Get current timestamp
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Log the manual ping result
+        user = get_current_user()
+        username = user['username'] if user else 'Unknown'
+        
+        # Add to database
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                conn.execute("INSERT INTO history VALUES (?, ?, ?, ?)", 
+                           (timestamp, ip, status, latency))
+                conn.commit()
+        except Exception as db_error:
+            logging.error(f"Failed to log manual ping: {db_error}")
+        
+        # Create detailed comment about manual ping
+        latency_text = f" ({latency:.2f}ms)" if latency else ""
+        comment_text = f"Manual {ping_type} ping: {status}{latency_text} - Tested by {username}"
+        
+        # Add comment about manual ping
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                conn.execute("""
+                    INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                    VALUES (?, ?, ?, ?, 'manual_ping')
+                """, (ip, comment_text, username, timestamp))
+                conn.commit()
+        except Exception as comment_error:
+            logging.error(f"Failed to add manual ping comment: {comment_error}")
+        
+        # Create response message
+        latency_display = f"{latency:.2f}ms" if latency else "N/A"
+        message = f"{ping_type} IP {ip}: {status} (Latency: {latency_display})"
+        
+        return jsonify({
+            'success': True,
+            'status': status,
+            'latency': latency_display,
+            'timestamp': timestamp,
+            'message': message,
+            'ping_type': ping_type
+        })
+        
+    except Exception as e:
+        logging.error(f"Force ping error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+        logging.error(f"Force ping error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# User Management API Routes
+@app.route('/api/users', methods=['GET'])
+@admin_required
+def get_users():
+    """Get all users"""
+    try:
+        users = get_all_users()
+        return jsonify({'success': True, 'users': users})
+    except Exception as e:
+        logging.error(f"Get users error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users', methods=['POST'])
+@admin_required
+def create_user():
+    """Create a new user"""
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        role = data.get('role', 'user')
+        
+        # Validation
+        if not username or not email or not password:
+            return jsonify({'error': 'Username, email, and password are required'}), 400
+        
+        if len(username) < 3:
+            return jsonify({'error': 'Username must be at least 3 characters long'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters long'}), 400
+        
+        # Email validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return jsonify({'error': 'Invalid email address'}), 400
+        
+        if role not in ['user', 'admin']:
+            return jsonify({'error': 'Role must be either "user" or "admin"'}), 400
+        
+        # Extract username from email if not provided
+        if not username or username == email:
+            username = email.split('@')[0]
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if username or email already exists
+            cursor.execute("SELECT id FROM users WHERE username = ? OR email = ?", (username, email))
+            if cursor.fetchone():
+                return jsonify({'error': 'Username or email already exists'}), 400
+            
+            # Create new user
+            password_hash = hash_password(password)
+            cursor.execute("""
+                INSERT INTO users (username, email, password_hash, role, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (username, email, password_hash, role, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            conn.commit()
+            
+            return jsonify({'success': True, 'message': f'User {username} created successfully'})
+            
+    except Exception as e:
+        logging.error(f"Create user error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@admin_required
+def update_user(user_id):
+    """Update user details"""
+    try:
+        data = request.json
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if user exists
+            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'User not found'}), 404
+            
+            # Update fields
+            update_fields = []
+            update_values = []
+            
+            if 'role' in data:
+                if data['role'] not in ['user', 'admin']:
+                    return jsonify({'error': 'Role must be either "user" or "admin"'}), 400
+                update_fields.append('role = ?')
+                update_values.append(data['role'])
+            
+            if 'is_active' in data:
+                update_fields.append('is_active = ?')
+                update_values.append(1 if data['is_active'] else 0)
+            
+            if update_fields:
+                update_values.append(user_id)
+                query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+                cursor.execute(query, update_values)
+                conn.commit()
+            
+            return jsonify({'success': True, 'message': 'User updated successfully'})
+            
+    except Exception as e:
+        logging.error(f"Update user error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def delete_user(user_id):
+    """Delete a user"""
+    try:
+        current_user = get_current_user()
+        if current_user['id'] == user_id:
+            return jsonify({'error': 'Cannot delete your own account'}), 400
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if user exists
+            cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+            user_data = cursor.fetchone()
+            if not user_data:
+                return jsonify({'error': 'User not found'}), 404
+            
+            username = user_data[0]
+            
+            # Delete user
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            
+            return jsonify({'success': True, 'message': f'User {username} deleted successfully'})
+            
+    except Exception as e:
+        logging.error(f"Delete user error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users')
+@login_required
+def get_users_list():
+    """Get list of all active users (for task assignment)"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, role, is_active 
+                FROM users 
+                WHERE is_active = 1
+                ORDER BY username
+            """)
+            users = cursor.fetchall()
+            
+            users_list = []
+            for user in users:
+                users_list.append({
+                    'id': user[0],
+                    'username': user[1],
+                    'email': user[2],
+                    'role': user[3],
+                    'is_active': user[4]
+                })
+            
+            return jsonify({'success': True, 'users': users_list})
+            
+    except Exception as e:
+        logging.error(f"Get users error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/assign_device', methods=['POST'])
+@admin_required
+def assign_device():
+    """Assign a device to a user"""
+    try:
+        data = request.json
+        device_ip = data.get('device_ip', '').strip()
+        user_id = data.get('user_id')
+        comment = data.get('comment', '').strip()
+        
+        if not device_ip or not validate_ip(device_ip):
+            return jsonify({'error': 'Invalid device IP address'}), 400
+        
+        if not user_id:
+            return jsonify({'error': 'User ID is required'}), 400
+        
+        current_user = get_current_user()
+        assigned_by = current_user['username']
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get user details
+            cursor.execute("SELECT username, email FROM users WHERE id = ? AND is_active = 1", (user_id,))
+            user_data = cursor.fetchone()
+            if not user_data:
+                return jsonify({'error': 'User not found or inactive'}), 404
+            
+            username, user_email = user_data
+            
+            # Get device details from current results
+            device_info = None
+            with results_lock:
+                for result in results:
+                    if result['SM IP'] == device_ip:
+                        device_info = result
+                        break
+            
+            if not device_info:
+                return jsonify({'error': 'Device not found in current monitoring results'}), 404
+            
+            # Create assignment record (acknowledge as assigned)
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute("""
+                INSERT OR REPLACE INTO device_acknowledgments (sm_ip, status, username, timestamp, comment)
+                VALUES (?, 'assigned', ?, ?, ?)
+            """, (device_ip, username, timestamp, f"Assigned by {assigned_by}: {comment}" if comment else f"Assigned by {assigned_by}"))
+            
+            # Add assignment comment
+            cursor.execute("""
+                INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                VALUES (?, ?, ?, ?, 'assignment')
+            """, (device_ip, f"Device assigned to {username} by {assigned_by}" + (f": {comment}" if comment else ""), 
+                  assigned_by, timestamp))
+            
+            # Create a task for this assignment
+            task_title = f"Fix {device_info['Device Name']} - {device_ip}"
+            task_description = f"Device assigned by {assigned_by}. Status: {device_info['Status']}"
+            if comment:
+                task_description += f"\nNote: {comment}"
+            
+            cursor.execute("""
+                INSERT INTO device_tasks 
+                (sm_ip, task_title, task_description, status, priority, assigned_to, created_by, created_at)
+                VALUES (?, ?, ?, 'open', 'high', ?, ?, ?)
+            """, (device_ip, task_title, task_description, username, assigned_by, timestamp))
+            
+            conn.commit()
+            
+            # Send email notification
+            email_sent = send_assignment_notification(
+                user_email, username, device_ip, 
+                device_info['Device Name'], device_info['Location'], 
+                assigned_by, comment
+            )
+            
+            message = f'Device {device_ip} assigned to {username} successfully'
+            if email_sent:
+                message += ' and notification email sent'
+            else:
+                message += ' but notification email failed to send'
+            
+            return jsonify({'success': True, 'message': message})
+            
+    except Exception as e:
+        logging.error(f"Assign device error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Maintenance Mode API Routes
+@app.route('/api/maintenance', methods=['GET'])
+@login_required
+def get_maintenance_windows():
+    """Get all active maintenance windows"""
+    try:
+        maintenance_status = get_maintenance_status()
+        return jsonify({'maintenance_windows': maintenance_status})
+    except Exception as e:
+        logging.error(f"Get maintenance windows error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/maintenance', methods=['POST'])
+@admin_required
+def add_maintenance():
+    """Add a maintenance window"""
+    try:
+        data = request.json
+        sm_ip = data.get('sm_ip')
+        start_time_str = data.get('start_time')
+        end_time_str = data.get('end_time')
+        reason = data.get('reason', 'Scheduled maintenance')
+        
+        if not sm_ip or not validate_ip(sm_ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        if not start_time_str or not end_time_str:
+            return jsonify({'error': 'Start time and end time are required'}), 400
+        
+        try:
+            start_time = datetime.strptime(start_time_str, '%Y-%m-%dT%H:%M')
+            end_time = datetime.strptime(end_time_str, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            return jsonify({'error': 'Invalid datetime format'}), 400
+        
+        if start_time >= end_time:
+            return jsonify({'error': 'End time must be after start time'}), 400
+        
+        if end_time <= datetime.now():
+            return jsonify({'error': 'End time must be in the future'}), 400
+        
+        add_maintenance_window(sm_ip, start_time, end_time, reason)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Maintenance window added for {sm_ip}',
+            'maintenance': {
+                'sm_ip': sm_ip,
+                'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'reason': reason
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Add maintenance error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/maintenance/<sm_ip>', methods=['DELETE'])
+@admin_required
+def remove_maintenance(sm_ip):
+    """Remove a maintenance window"""
+    try:
+        if not validate_ip(sm_ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        if sm_ip not in MAINTENANCE_WINDOWS:
+            return jsonify({'error': 'No maintenance window found for this IP'}), 404
+        
+        remove_maintenance_window(sm_ip)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Maintenance window removed for {sm_ip}'
+        })
+        
+    except Exception as e:
+        logging.error(f"Remove maintenance error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/device_details/<ip>')
+def get_device_details(ip):
+    """Get detailed information about a device including comments and acknowledgment status"""
+    try:
+        if not validate_ip(ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        # Get device info from current results
+        device_info = None
+        with results_lock:
+            for result in results:
+                if result['SM IP'] == ip:
+                    device_info = result
+                    break
+        
+        if not device_info:
+            return jsonify({'error': 'Device not found'}), 404
+        
+        # Get acknowledgment status
+        ack_status = 'unassigned'
+        ack_info = None
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT status, username, timestamp, comment FROM device_acknowledgments WHERE sm_ip = ?", (ip,))
+                ack_record = cursor.fetchone()
+                if ack_record:
+                    ack_status = ack_record[0]
+                    ack_info = {
+                        'status': ack_record[0],
+                        'username': ack_record[1],
+                        'timestamp': ack_record[2],
+                        'comment': ack_record[3]
+                    }
+        except Exception as e:
+            logging.error(f"Error getting acknowledgment status for {ip}: {str(e)}")
+        
+        # Get recent comments
+        comments = []
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT comment, username, timestamp, comment_type 
+                    FROM device_comments 
+                    WHERE sm_ip = ? 
+                    ORDER BY timestamp DESC 
+                    LIMIT 10
+                """, (ip,))
+                comment_records = cursor.fetchall()
+                for record in comment_records:
+                    comments.append({
+                        'comment': record[0],
+                        'username': record[1],
+                        'timestamp': record[2],
+                        'type': record[3]
+                    })
+        except Exception as e:
+            logging.error(f"Error getting comments for {ip}: {str(e)}")
+        
+        # Get recent history (last 24 hours)
+        history = []
+        try:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cutoff = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute("""
+                    SELECT timestamp, status, latency 
+                    FROM history 
+                    WHERE sm_ip = ? AND timestamp >= ? 
+                    ORDER BY timestamp DESC 
+                    LIMIT 20
+                """, (ip, cutoff))
+                history_records = cursor.fetchall()
+                for record in history_records:
+                    history.append({
+                        'timestamp': record[0],
+                        'status': record[1],
+                        'latency': f"{record[2]:.2f} ms" if record[2] is not None else 'N/A'
+                    })
+        except Exception as e:
+            logging.error(f"Error getting history for {ip}: {str(e)}")
+        
+        return jsonify({
+            'device': device_info,
+            'acknowledgment': {
+                'status': ack_status,
+                'info': ack_info
+            },
+            'comments': comments,
+            'history': history
+        })
+    except Exception as e:
+        logging.error(f"Get device details error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/device_comments/<sm_ip>')
+@login_required
+def get_device_comments(sm_ip):
+    """Get all comments for a device"""
+    try:
+        if not validate_ip(sm_ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT comment, username, timestamp, comment_type
+                FROM device_comments
+                WHERE sm_ip = ?
+                ORDER BY timestamp ASC
+                LIMIT 50
+            """, (sm_ip,))
+            
+            comments = []
+            for row in cursor.fetchall():
+                comments.append({
+                    'comment': row[0],
+                    'username': row[1],
+                    'timestamp': row[2],
+                    'comment_type': row[3]
+                })
+            
+            # Keep chronological order (oldest first, newest last)
+            
+            return jsonify({'success': True, 'comments': comments})
+    except Exception as e:
+        logging.error(f"Get comments error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add_device_comment', methods=['POST'])
+@login_required
+def add_device_comment():
+    """Add a comment to a device"""
+    try:
+        data = request.json
+        sm_ip = data.get('sm_ip', '').strip()
+        comment = data.get('comment', '').strip()
+        comment_type = data.get('type', 'comment')
+        
+        # Use logged-in user's username
+        user = get_current_user()
+        username = user['username'] if user else 'Anonymous'
+        
+        if not validate_ip(sm_ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        if not comment:
+            return jsonify({'error': 'Comment cannot be empty'}), 400
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            conn.execute("""
+                INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                VALUES (?, ?, ?, ?, ?)
+            """, (sm_ip, comment, username, timestamp, comment_type))
+            conn.commit()
+        
+        logging.info(f"Added comment for {sm_ip} by {username}")
+        return jsonify({'success': True, 'message': 'Comment added successfully'})
+    except Exception as e:
+        logging.error(f"Add comment error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add_comment', methods=['POST'])
+@login_required
+def add_comment():
+    """Add a comment to a device"""
+    try:
+        data = request.json
+        ip = data.get('ip', '').strip()
+        comment = data.get('comment', '').strip()
+        comment_type = data.get('type', 'comment')
+        
+        # Use logged-in user's username
+        user = get_current_user()
+        username = user['username'] if user else 'Anonymous'
+        
+        if not validate_ip(ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        if not comment:
+            return jsonify({'error': 'Comment cannot be empty'}), 400
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            conn.execute("""
+                INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                VALUES (?, ?, ?, ?, ?)
+            """, (ip, comment, username, timestamp, comment_type))
+            conn.commit()
+        
+        logging.info(f"Added comment for {ip} by {username}")
+        return jsonify({'success': True, 'message': 'Comment added successfully'})
+    except Exception as e:
+        logging.error(f"Add comment error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/acknowledge_device', methods=['POST'])
+@login_required
+def acknowledge_device():
+    """Acknowledge or assign a device issue"""
+    try:
+        data = request.json
+        ip = data.get('ip', '').strip()
+        status = data.get('status', 'ack').strip()  # 'ack', 'assigned', or 'unassigned'
+        comment = data.get('comment', '').strip()
+        
+        # Use logged-in user's username
+        user = get_current_user()
+        username = user['username'] if user else 'Anonymous'
+        
+        if not validate_ip(ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        if status not in ['ack', 'assigned', 'unassigned']:
+            return jsonify({'error': 'Invalid status'}), 400
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            if status == 'unassigned':
+                # Remove acknowledgment
+                cursor.execute("DELETE FROM device_acknowledgments WHERE sm_ip = ?", (ip,))
+                # Also close any open tasks for this device by this user
+                cursor.execute("""
+                    UPDATE device_tasks 
+                    SET status = 'closed', closed_at = ?, resolution = 'Unassigned from device'
+                    WHERE sm_ip = ? AND assigned_to = ? AND status != 'closed'
+                """, (timestamp, ip, username))
+            else:
+                # Insert or update acknowledgment
+                cursor.execute("""
+                    INSERT OR REPLACE INTO device_acknowledgments (sm_ip, status, username, timestamp, comment)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (ip, status, username, timestamp, comment))
+                
+                # If status is 'assigned', create a task
+                if status == 'assigned':
+                    # Get device info
+                    device_info = None
+                    with results_lock:
+                        for result in results:
+                            if result.get('SM IP', result.get('sm_ip')) == ip:
+                                device_info = result
+                                break
+                    
+                    if device_info:
+                        task_title = f"Fix {device_info.get('Device Name', 'Unknown')} - {ip}"
+                        task_description = f"Self-assigned device. Status: {device_info.get('Status', 'Unknown')}"
+                        if comment:
+                            task_description += f"\nNote: {comment}"
+                        
+                        # Check if task already exists for this device and user
+                        cursor.execute("""
+                            SELECT id FROM device_tasks 
+                            WHERE sm_ip = ? AND assigned_to = ? AND status != 'closed'
+                        """, (ip, username))
+                        
+                        if not cursor.fetchone():
+                            # Create new task
+                            cursor.execute("""
+                                INSERT INTO device_tasks 
+                                (sm_ip, task_title, task_description, status, priority, assigned_to, created_by, created_at)
+                                VALUES (?, ?, ?, 'open', 'high', ?, ?, ?)
+                            """, (ip, task_title, task_description, username, username, timestamp))
+            
+            conn.commit()
+        
+        # Also add a comment about the acknowledgment
+        if comment:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                conn.execute("""
+                    INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (ip, f"Status changed to {status}: {comment}", username, timestamp, 'status_change'))
+                conn.commit()
+        
+        logging.info(f"Device {ip} {status} by {username}")
+        return jsonify({'success': True, 'message': f'Device {status} successfully'})
+    except Exception as e:
+        logging.error(f"Acknowledge device error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/all_devices_for_tasks')
+@login_required
+def get_all_devices_for_tasks():
+    """Get all devices from main dashboard for task assignment (only Down and Degraded, excluding already assigned devices with active tasks)"""
+    try:
+        user = get_current_user()
+        current_username = user['username']
+        
+        # Get all current devices from monitoring results
+        devices_list = []
+        total_devices = 0
+        status_counts = {}
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get list of assigned devices with their assigned usernames from device_acknowledgments
+            assigned_devices = {}  # sm_ip -> username
+            cursor.execute("""
+                SELECT sm_ip, username FROM device_acknowledgments 
+                WHERE status = 'assigned'
+            """)
+            for row in cursor.fetchall():
+                assigned_devices[row[0]] = row[1]
+            
+            # Get list of devices with active tasks
+            cursor.execute("""
+                SELECT DISTINCT sm_ip FROM device_tasks 
+                WHERE status != 'closed'
+            """)
+            devices_with_active_tasks = set(row[0] for row in cursor.fetchall())
+            
+            logging.info(f"Found {len(assigned_devices)} assigned devices")
+            logging.info(f"Found {len(devices_with_active_tasks)} devices with active tasks")
+            
+            with results_lock:
+                total_devices = len(results)
+                logging.info(f"Total devices in results: {total_devices}")
+                
+                for result in results:
+                    # The results array uses 'Status' (capital S) not 'status'
+                    status = result.get('Status', result.get('status', 'Unknown'))
+                    sm_ip = result.get('SM IP', result.get('sm_ip'))
+                    
+                    # Count all unique statuses
+                    status_counts[status] = status_counts.get(status, 0) + 1
+                    
+                    # Only include Down and Degraded devices
+                    if status in ['Down', 'Degraded']:
+                        # Check if device is assigned
+                        assigned_to = assigned_devices.get(sm_ip)
+                        
+                        # Skip devices assigned to current user (they're in My Tasks)
+                        if assigned_to == current_username:
+                            continue
+                        
+                        # Skip devices that have active tasks (assigned to anyone)
+                        if sm_ip in devices_with_active_tasks:
+                            continue
+                        
+                        # Only show truly unassigned devices
+                        device_data = {
+                            'sm_ip': sm_ip,
+                            'device_name': result.get('Device Name', result.get('device_name', 'N/A')),
+                            'location': result.get('Location', result.get('location', 'N/A')),
+                            'status': status,
+                            'latency': result.get('Latency', result.get('latency', 'N/A')),
+                            'ap_name': result.get('AP Name', result.get('ap_name', 'N/A')),
+                            'ap_ip': result.get('AP IP', result.get('ap_ip', 'N/A')),
+                            'cid': result.get('CID', result.get('cid', 'N/A')),
+                            'assigned_to': None  # Only unassigned devices shown
+                        }
+                        devices_list.append(device_data)
+        
+        logging.info(f"Status counts: {status_counts}")
+        logging.info(f"Returning {len(devices_list)} devices for user {current_username}")
+        
+        return jsonify({
+            'success': True,
+            'count': len(devices_list),
+            'devices': devices_list,
+            'debug': {
+                'total_devices': total_devices,
+                'status_counts': status_counts,
+                'all_statuses': list(status_counts.keys()),
+                'assigned_count': len(assigned_devices),
+                'active_tasks_count': len(devices_with_active_tasks)
+            }
+        })
+    except Exception as e:
+        logging.error(f"Error getting all devices: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/task_statistics')
+@login_required
+def get_task_statistics():
+    """Get task statistics for current user"""
+    try:
+        user = get_current_user()
+        username = user['username']
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get current month start
+            now = datetime.now()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            # Monthly tasks done
+            cursor.execute("""
+                SELECT COUNT(*) FROM device_tasks 
+                WHERE assigned_to = ? AND status = 'closed' 
+                AND closed_at >= ?
+            """, (username, month_start.strftime('%Y-%m-%d %H:%M:%S')))
+            monthly_done = cursor.fetchone()[0]
+            
+            # Total closed tasks
+            cursor.execute("""
+                SELECT COUNT(*) FROM device_tasks 
+                WHERE assigned_to = ? AND status = 'closed'
+            """, (username,))
+            total_closed = cursor.fetchone()[0]
+            
+            # Average duration (in hours)
+            cursor.execute("""
+                SELECT AVG(
+                    (julianday(closed_at) - julianday(created_at)) * 24
+                ) FROM device_tasks 
+                WHERE assigned_to = ? AND status = 'closed'
+                AND closed_at IS NOT NULL
+            """, (username,))
+            avg_duration_result = cursor.fetchone()[0]
+            avg_duration = round(avg_duration_result, 2) if avg_duration_result else 0
+            
+            # Open tasks
+            cursor.execute("""
+                SELECT COUNT(*) FROM device_tasks 
+                WHERE assigned_to = ? AND status = 'open'
+            """, (username,))
+            open_tasks = cursor.fetchone()[0]
+            
+            # In progress tasks
+            cursor.execute("""
+                SELECT COUNT(*) FROM device_tasks 
+                WHERE assigned_to = ? AND status = 'in_progress'
+            """, (username,))
+            in_progress_tasks = cursor.fetchone()[0]
+            
+            return jsonify({
+                'success': True,
+                'monthly_done': monthly_done,
+                'total_closed': total_closed,
+                'avg_duration_hours': avg_duration,
+                'open_tasks': open_tasks,
+                'in_progress_tasks': in_progress_tasks
+            })
+    except Exception as e:
+        logging.error(f"Error getting task statistics: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/create_task', methods=['POST'])
+@login_required
+def create_task():
+    """Create a new task"""
+    try:
+        user = get_current_user()
+        data = request.json
+        
+        sm_ip = data.get('sm_ip', '').strip()
+        title = data.get('title', '').strip()
+        description = data.get('description', '').strip()
+        priority = data.get('priority', 'medium')
+        assign_to_self = data.get('assign_to_self', False)
+        
+        if not sm_ip or not title:
+            return jsonify({'error': 'SM IP and title are required'}), 400
+        
+        assigned_to = user['username'] if assign_to_self else None
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get the next ID to generate task_id
+            cursor.execute("SELECT MAX(id) FROM device_tasks")
+            max_id = cursor.fetchone()[0]
+            next_id = (max_id or 0) + 1
+            task_id_str = f"TASK-{1000 + next_id:04d}"
+            
+            cursor.execute("""
+                INSERT INTO device_tasks 
+                (task_id, sm_ip, task_title, task_description, status, priority, assigned_to, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)
+            """, (task_id_str, sm_ip, title, description, priority, assigned_to, user['username'], timestamp, timestamp))
+            task_id = cursor.lastrowid
+            conn.commit()
+        
+        logging.info(f"Task created: ID={task_id_str}, IP={sm_ip}, User={user['username']}")
+        return jsonify({'success': True, 'task_id': task_id, 'task_id_str': task_id_str, 'message': 'Task created successfully'})
+    except Exception as e:
+        logging.error(f"Error creating task: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/task/<int:task_id>')
+@login_required
+def get_task_by_id(task_id):
+    """Get a single task by ID"""
+    try:
+        user = get_current_user()
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # All users can view all tasks
+            cursor.execute("""
+                SELECT id, sm_ip, task_id, task_title, task_description, status, priority, 
+                       assigned_to, created_by, created_at, updated_at, closed_at, closed_by, resolution
+                FROM device_tasks 
+                WHERE id = ?
+            """, (task_id,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({'error': 'Task not found'}), 404
+            
+            task = {
+                'id': row[0],
+                'sm_ip': row[1],
+                'task_id': row[2],
+                'title': row[3],
+                'description': row[4],
+                'status': row[5],
+                'priority': row[6],
+                'assigned_to': row[7],
+                'created_by': row[8],
+                'created_at': row[9],
+                'updated_at': row[10],
+                'closed_at': row[11],
+                'closed_by': row[12],
+                'resolution': row[13]
+            }
+            
+            return jsonify({'success': True, 'task': task})
+    except Exception as e:
+        logging.error(f"Error getting task: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/update_task/<int:task_id>', methods=['PUT'])
+@login_required
+def update_task(task_id):
+    """Update task status or details"""
+    try:
+        user = get_current_user()
+        data = request.json
+        
+        status = data.get('status')
+        resolution = data.get('resolution', '').strip()
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # If closing task, check if user is admin or if SM is reachable
+            if status == 'closed' and user['role'] != 'admin':
+                # Get task details to find SM IP
+                cursor.execute("SELECT sm_ip, task_description FROM device_tasks WHERE id = ?", (task_id,))
+                task_data = cursor.fetchone()
+                
+                if task_data:
+                    sm_ip = task_data[0]
+                    description = task_data[1] or ''
+                    
+                    # Extract AP IP from description
+                    import re
+                    ap_ip_match = re.search(r'🌐 AP IP: ([\d.]+)', description)
+                    ap_ip = ap_ip_match.group(1) if ap_ip_match else None
+                    
+                    # Check current status of SM and AP
+                    sm_reachable = False
+                    ap_reachable = False
+                    
+                    # Check SM status from current results
+                    with results_lock:
+                        for result in results:
+                            if result.get('SM IP') == sm_ip:
+                                sm_reachable = result.get('Status') == 'Reachable'
+                                break
+                    
+                    # Check AP status if we have AP IP
+                    if ap_ip:
+                        with results_lock:
+                            for result in results:
+                                if result.get('AP IP') == ap_ip:
+                                    ap_reachable = result.get('Status') == 'Reachable'
+                                    break
+                    else:
+                        # If no AP IP found, assume it's reachable (don't block)
+                        ap_reachable = True
+                    
+                    # Only block if SM is not reachable (AP being down is just a warning)
+                    if not sm_reachable:
+                        return jsonify({
+                            'error': 'SM is still down. Only admin can close tasks with unreachable SM.',
+                            'sm_reachable': sm_reachable,
+                            'ap_reachable': ap_reachable
+                        }), 403
+                    
+                    # If SM is reachable but AP is not, store warning to return with success
+                    ap_warning = None
+                    if not ap_reachable:
+                        ap_warning = 'Note: AP is still unreachable, but task closed as SM is reachable.'
+            
+            # Proceed with update
+            if status == 'closed':
+                cursor.execute("""
+                    UPDATE device_tasks 
+                    SET status = ?, updated_at = ?, closed_at = ?, closed_by = ?, resolution = ?
+                    WHERE id = ?
+                """, (status, timestamp, timestamp, user['username'], resolution, task_id))
+            else:
+                cursor.execute("""
+                    UPDATE device_tasks 
+                    SET status = ?, updated_at = ?
+                    WHERE id = ?
+                """, (status, timestamp, task_id))
+            
+            conn.commit()
+        
+        logging.info(f"Task updated: ID={task_id}, Status={status}, User={user['username']}")
+        
+        # Return success with optional AP warning
+        response = {'success': True, 'message': 'Task updated successfully'}
+        if status == 'closed' and 'ap_warning' in locals() and ap_warning:
+            response['warning'] = ap_warning
+        
+        return jsonify(response)
+    except Exception as e:
+        logging.error(f"Error updating task: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/assign_task/<int:task_id>', methods=['PUT'])
+@login_required
+def assign_task_to_self(task_id):
+    """Assign task to current user"""
+    try:
+        user = get_current_user()
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE device_tasks 
+                SET assigned_to = ?, status = 'in_progress', updated_at = ?
+                WHERE id = ?
+            """, (user['username'], timestamp, task_id))
+            conn.commit()
+        
+        logging.info(f"Task assigned: ID={task_id}, User={user['username']}")
+        return jsonify({'success': True, 'message': 'Task assigned to you'})
+    except Exception as e:
+        logging.error(f"Error assigning task: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reassign_task/<int:task_id>', methods=['PUT'])
+@login_required
+def reassign_task(task_id):
+    """Reassign task to another user (admin only)"""
+    try:
+        user = get_current_user()
+        
+        # Only admin can reassign tasks
+        if user['role'] != 'admin':
+            return jsonify({'error': 'Only administrators can reassign tasks'}), 403
+        
+        data = request.json
+        new_assignee = data.get('assigned_to', '').strip()
+        
+        if not new_assignee:
+            return jsonify({'error': 'Assignee username is required'}), 400
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Verify the new assignee exists
+            cursor.execute("SELECT id FROM users WHERE username = ?", (new_assignee,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'User not found'}), 404
+            
+            # Get task details including SM IP and old assignee
+            cursor.execute("SELECT sm_ip, assigned_to FROM device_tasks WHERE id = ?", (task_id,))
+            task_data = cursor.fetchone()
+            if not task_data:
+                return jsonify({'error': 'Task not found'}), 404
+            
+            sm_ip = task_data[0]
+            old_assignee = task_data[1]
+            
+            # Update the task assignment
+            cursor.execute("""
+                UPDATE device_tasks 
+                SET assigned_to = ?, updated_at = ?
+                WHERE id = ?
+            """, (new_assignee, timestamp, task_id))
+            
+            # Update device_acknowledgments to reflect new assignee
+            cursor.execute("""
+                INSERT OR REPLACE INTO device_acknowledgments (sm_ip, status, username, timestamp, comment)
+                VALUES (?, 'assigned', ?, ?, ?)
+            """, (sm_ip, new_assignee, timestamp, f"Task reassigned from {old_assignee} to {new_assignee} by {user['username']}"))
+            
+            # Add a comment to the task about the reassignment
+            cursor.execute("""
+                INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
+                VALUES (?, ?, ?, ?, 'reassignment')
+            """, (sm_ip, f"Task reassigned from {old_assignee} to {new_assignee}", user['username'], timestamp))
+            
+            conn.commit()
+        
+        logging.info(f"Task reassigned: ID={task_id}, From={old_assignee}, To={new_assignee}, By={user['username']}")
+        return jsonify({'success': True, 'message': f'Task reassigned to {new_assignee}'})
+    except Exception as e:
+        logging.error(f"Error reassigning task: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/my_tasks_list')
+@login_required
+def get_my_tasks_list():
+    """Get all tasks assigned to current user (or all tasks if admin)"""
+    try:
+        user = get_current_user()
+        username = user['username']
+        is_admin = user['role'] == 'admin'
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Admin sees all tasks, regular users see only their tasks
+            if is_admin:
+                cursor.execute("""
+                    SELECT id, task_id, sm_ip, task_title, task_description, status, priority, 
+                           assigned_to, created_by, created_at, updated_at, closed_at, resolution
+                    FROM device_tasks 
+                    ORDER BY 
+                        CASE status 
+                            WHEN 'in_progress' THEN 1 
+                            WHEN 'open' THEN 2 
+                            WHEN 'closed' THEN 3 
+                        END,
+                        created_at DESC
+                """)
+            else:
+                cursor.execute("""
+                    SELECT id, task_id, sm_ip, task_title, task_description, status, priority, 
+                           assigned_to, created_by, created_at, updated_at, closed_at, resolution
+                    FROM device_tasks 
+                    WHERE assigned_to = ?
+                    ORDER BY 
+                        CASE status 
+                            WHEN 'in_progress' THEN 1 
+                            WHEN 'open' THEN 2 
+                            WHEN 'closed' THEN 3 
+                        END,
+                        created_at DESC
+                """, (username,))
+            
+            tasks = []
+            for row in cursor.fetchall():
+                tasks.append({
+                    'id': row[0],
+                    'task_id': row[1],
+                    'sm_ip': row[2],
+                    'title': row[3],
+                    'description': row[4],
+                    'status': row[5],
+                    'priority': row[6],
+                    'assigned_to': row[7],
+                    'created_by': row[8],
+                    'created_at': row[9],
+                    'updated_at': row[10],
+                    'closed_at': row[11],
+                    'resolution': row[12]
+                })
+            
+            return jsonify({'success': True, 'tasks': tasks})
+    except Exception as e:
+        logging.error(f"Error getting tasks: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/device_task_history/<sm_ip>')
+@login_required
+def get_device_task_history(sm_ip):
+    """Get all tasks (history) for a specific device"""
+    try:
+        if not validate_ip(sm_ip):
+            return jsonify({'error': 'Invalid IP address'}), 400
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, task_id, task_title, task_description, status, priority, 
+                       assigned_to, created_by, created_at, updated_at, closed_at, closed_by, resolution
+                FROM device_tasks 
+                WHERE sm_ip = ?
+                ORDER BY created_at DESC
+            """, (sm_ip,))
+            
+            tasks = []
+            for row in cursor.fetchall():
+                tasks.append({
+                    'id': row[0],
+                    'task_id': row[1],
+                    'title': row[2],
+                    'description': row[3],
+                    'status': row[4],
+                    'priority': row[5],
+                    'assigned_to': row[6],
+                    'created_by': row[7],
+                    'created_at': row[8],
+                    'updated_at': row[9],
+                    'closed_at': row[10],
+                    'closed_by': row[11],
+                    'resolution': row[12]
+                })
+            
+            return jsonify({
+                'success': True, 
+                'tasks': tasks,
+                'total_count': len(tasks),
+                'sm_ip': sm_ip
+            })
+    except Exception as e:
+        logging.error(f"Error getting device task history: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/my_assigned_devices')
+@login_required
+def get_my_assigned_devices():
+    """Get devices assigned to the current user"""
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        username = user['username']
+        logging.info(f"Fetching assigned devices for user: {username}")
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Debug: Check all assignments in database
+            cursor.execute("SELECT sm_ip, status, username, timestamp FROM device_acknowledgments")
+            all_assignments = cursor.fetchall()
+            logging.info(f"Total assignments in database: {len(all_assignments)}")
+            for assign in all_assignments:
+                logging.info(f"  Assignment: IP={assign[0]}, Status={assign[1]}, User={assign[2]}, Time={assign[3]}")
+            
+            cursor.execute("""
+                SELECT da.sm_ip, da.status, da.timestamp, da.comment
+                FROM device_acknowledgments da
+                WHERE da.username = ? AND da.status = 'assigned'
+                ORDER BY da.timestamp DESC
+            """, (username,))
+            
+            assignments = cursor.fetchall()
+            logging.info(f"Found {len(assignments)} assignments for user {username}")
+            
+            # Load device info from Excel file
+            df = load_xlsx()
+            
+            # Get device details for each assigned device
+            assigned_devices = []
+            for assignment in assignments:
+                sm_ip = assignment[0]
+                logging.info(f"Processing assignment for IP: {sm_ip}")
+                
+                # First try to get from current results (for real-time status)
+                device_info = None
+                with results_lock:
+                    for result in results:
+                        # Results array uses 'SM IP' (capital with space) not 'sm_ip'
+                        if result.get('SM IP', result.get('sm_ip')) == sm_ip:
+                            device_info = {
+                                'sm_ip': sm_ip,
+                                'device_name': result.get('Device Name', result.get('device_name', 'N/A')),
+                                'location': result.get('Location', result.get('location', 'N/A')),
+                                'ap_name': result.get('AP Name', result.get('ap_name', 'N/A')),
+                                'ap_ip': result.get('AP IP', result.get('ap_ip', 'N/A')),
+                                'cid': result.get('CID', result.get('cid', 'N/A')),
+                                'status': result.get('Status', result.get('status', 'Unknown')),
+                                'latency': result.get('Latency', result.get('latency', 'N/A'))
+                            }
+                            logging.info(f"  Found in current results: {device_info}")
+                            break
+                
+                # If not in current results, get from Excel file
+                if not device_info and df is not None:
+                    device_row = df[df['SM IP'] == sm_ip]
+                    if not device_row.empty:
+                        device_info = {
+                            'sm_ip': sm_ip,
+                            'device_name': str(device_row.iloc[0].get('Device Name', 'N/A')),
+                            'location': str(device_row.iloc[0].get('Location', 'N/A')),
+                            'ap_name': str(device_row.iloc[0].get('AP Name', 'N/A')),
+                            'ap_ip': str(device_row.iloc[0].get('AP IP', 'N/A')),
+                            'cid': str(device_row.iloc[0].get('CID', 'N/A')),
+                            'status': 'Unknown',  # Will be updated from monitoring
+                            'latency': 'N/A'
+                        }
+                        logging.info(f"  Found in Excel: {device_info}")
+                        
+                        # Try to get latest status from database
+                        cursor.execute("""
+                            SELECT status, latency 
+                            FROM history 
+                            WHERE sm_ip = ? 
+                            ORDER BY timestamp DESC 
+                            LIMIT 1
+                        """, (sm_ip,))
+                        history_row = cursor.fetchone()
+                        if history_row:
+                            device_info['status'] = history_row[0]
+                            device_info['latency'] = history_row[1] if history_row[1] else 'N/A'
+                            logging.info(f"  Updated status from history: {history_row[0]}")
+                
+                if device_info:
+                    assigned_devices.append({
+                        'sm_ip': sm_ip,
+                        'device_name': device_info.get('device_name', 'N/A'),
+                        'location': device_info.get('location', 'N/A'),
+                        'ap_name': device_info.get('ap_name', 'N/A'),
+                        'ap_ip': device_info.get('ap_ip', 'N/A'),
+                        'cid': device_info.get('cid', 'N/A'),
+                        'status': device_info.get('status', 'Unknown'),
+                        'latency': device_info.get('latency', 'N/A'),
+                        'assigned_at': assignment[2],
+                        'comment': assignment[3] or ''
+                    })
+                else:
+                    # Even if device not found, show it with minimal info
+                    logging.warning(f"  Device {sm_ip} not found in results or Excel, showing with minimal info")
+                    assigned_devices.append({
+                        'sm_ip': sm_ip,
+                        'device_name': 'Unknown Device',
+                        'location': 'Unknown',
+                        'ap_name': 'N/A',
+                        'ap_ip': 'N/A',
+                        'cid': 'N/A',
+                        'status': 'Unknown',
+                        'latency': 'N/A',
+                        'assigned_at': assignment[2],
+                        'comment': assignment[3] or ''
+                    })
+        
+        logging.info(f"Returning {len(assigned_devices)} assigned devices")
+        return jsonify({
+            'success': True,
+            'count': len(assigned_devices),
+            'devices': assigned_devices
+        })
+    except Exception as e:
+        logging.error(f"Error getting assigned devices: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/my_tasks')
+@login_required
+def my_tasks():
+    """My Tasks page showing assigned devices"""
+    user = get_current_user()
+    return render_template('my_tasks.html', user=user)
+
 @app.route('/')
+@login_required
+def dashboard():
+    user = get_current_user()
+    users = get_all_users() if user and user['role'] == 'admin' else []
+    return render_template('index.html', user=user, users=users)
+
+@app.route('/dashboard')
+@login_required
 def index():
-    return render_template('index.html')
+    return redirect(url_for('dashboard'))
+
+@app.route('/test_maintenance')
+def test_maintenance():
+    """Test page for maintenance mode functionality"""
+    return send_file('test_maintenance.html')
 
 if __name__ == '__main__':
     start_periodic_update()

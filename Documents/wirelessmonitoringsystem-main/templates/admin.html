@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -46,11 +48,12 @@
             display: block;
             margin-bottom: 5px;
         }
-        input, select {
+        input, select, textarea {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            box-sizing: border-box;
         }
         button {
             padding: 10px;
@@ -77,6 +80,7 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            text-decoration: none;
         }
         .logout-btn:hover {
             background-color: #c82333;
@@ -91,9 +95,36 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            text-decoration: none;
         }
         .dashboard-btn:hover {
             background-color: #0056b3;
+        }
+        .profile-btn {
+            position: fixed;
+            top: 10px;
+            right: 230px;
+            padding: 5px 10px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .profile-btn:hover {
+            background-color: #218838;
+        }
+        .user-info {
+            position: fixed;
+            top: 50px;
+            right: 10px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            font-size: 12px;
+            color: #666;
         }
         .search-bar {
             margin-bottom: 15px;
@@ -104,87 +135,800 @@
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        .hidden {
+            display: none;
+        }
+        .toggle-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .toggle-button:hover {
+            background-color: #0056b3;
+        }
+        
+        .maintenance-controls {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .form-row {
+            display: flex;
+            gap: 15px;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .form-group label {
+            font-weight: 500;
+            color: #555;
+            font-size: 14px;
+        }
+        
+        .form-group input, .form-group select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-group button {
+            padding: 8px 16px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .form-group button:hover {
+            background: #1557b0;
+        }
+        
+        .maintenance-item {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-left: 4px solid #ff9800;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .maintenance-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .maintenance-ip {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .maintenance-remove {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .maintenance-remove:hover {
+            background: #d32f2f;
+        }
+        
+        .maintenance-details {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .maintenance-time {
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
     </style>
 </head>
 <body>
-    <button class="logout-btn" onclick="window.location.href='/admin/logout'">Logout</button>
-    <button class="dashboard-btn" onclick="window.location.href='/'">Return to Dashboard</button>
+    <a href="{{ url_for('profile') }}" class="profile-btn">Profile</a>
+    <a href="{{ url_for('dashboard') }}" class="dashboard-btn">Dashboard</a>
+    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+    <div class="user-info">
+        Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
+    </div>
+    
     <div class="container">
         <div class="section">
-            <h2>Add New Entry</h2>
-            {% if error %}
-                <p class="error">{{ error }}</p>
-            {% endif %}
-            <form id="add-entry-form">
-                <div class="form-group">
-                    <label for="sm_ip">SM IP</label>
-                    <input type="text" id="sm_ip" name="sm_ip" required>
+            <h2>Admin Dashboard</h2>
+            <button class="toggle-button" id="toggleEntryManagement">Show Entry Management</button>
+            
+            <div class="hidden" id="entryManagementSection">
+                <div class="section">
+                    <h2>Add New Entry</h2>
+                    {% if error %}
+                        <p class="error">{{ error }}</p>
+                    {% endif %}
+                    <form id="add-entry-form">
+                        <div class="form-group">
+                            <label for="sm_ip">SM IP</label>
+                            <input type="text" id="sm_ip" name="sm_ip" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="ap_name">AP Name</label>
+                            <input type="text" id="ap_name" name="ap_name">
+                        </div>
+                        <div class="form-group">
+                            <label for="ap_ip">AP IP</label>
+                            <input type="text" id="ap_ip" name="ap_ip">
+                        </div>
+                        <div class="form-group">
+                            <label for="cid">CID</label>
+                            <input type="text" id="cid" name="cid">
+                        </div>
+                        <div class="form-group">
+                            <label for="org_name">Device Name</label>
+                            <input type="text" id="org_name" name="org_name">
+                        </div>
+                        <div class="form-group">
+                            <label for="location">Location</label>
+                            <select id="location" name="location" required>
+                                <option value="">Select Location</option>
+                                {% for loc in locations %}
+                                    <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit">Add Entry</button>
+                    </form>
                 </div>
-                <div class="form-group">
-                    <label for="ap_name">AP Name</label>
-                    <input type="text" id="ap_name" name="ap_name">
+                
+                <div class="section">
+                    <h2>Manage Entries</h2>
+                    <div class="search-bar">
+                        <input type="text" id="search-input" placeholder="Search by SM IP, Device Name, or Location">
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>AP Name</th>
+                                <th>AP IP</th>
+                                <th>CID</th>
+                                <th>SM IP</th>
+                                <th>Device Name</th>
+                                <th>Location</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="entries-table">
+                            {% for record in records %}
+                                <tr class="entry-row">
+                                    <td>{{ record.get('AP Name', 'N/A') }}</td>
+                                    <td>{{ record.get('AP IP', 'N/A') }}</td>
+                                    <td>{{ record.get('CID', 'N/A') }}</td>
+                                    <td>{{ record.get('SM IP', 'N/A') }}</td>
+                                    <td>{{ record.get('Device Name', 'N/A') }}</td>
+                                    <td>{{ record.get('Location', 'N/A') }}</td>
+                                    <td>
+                                        <button onclick="editEntry('{{ record.get('SM IP', '')|replace("'", "\\'") }}')">Edit</button>
+                                        <button onclick="deleteEntry('{{ record.get('SM IP', '')|replace("'", "\\'") }}')">Delete</button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
-                <div class="form-group">
-                    <label for="ap_ip">AP IP</label>
-                    <input type="text" id="ap_ip" name="ap_ip">
-                </div>
-                <div class="form-group">
-                    <label for="cid">CID</label>
-                    <input type="text" id="cid" name="cid">
-                </div>
-                <div class="form-group">
-                    <label for="org_name">Device Name</label>
-                    <input type="text" id="org_name" name="org_name">
-                </div>
-                <div class="form-group">
-                    <label for="location">Location</label>
-                    <select id="location" name="location" required>
-                        <option value="">Select Location</option>
-                        {% for loc in locations %}
-                            <option value="{{ loc }}">{{ loc }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit">Add Entry</button>
-            </form>
-        </div>
-        <div class="section">
-            <h2>Manage Entries</h2>
-            <div class="search-bar">
-                <input type="text" id="search-input" placeholder="Search by SM IP, Device Name, or Location">
             </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>AP Name</th>
-                        <th>AP IP</th>
-                        <th>CID</th>
-                        <th>SM IP</th>
-                        <th>Device Name</th>
-                        <th>Location</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="entries-table">
-                    {% for record in records %}
-                        <tr class="entry-row">
-                            <td>{{ record.get('AP Name', 'N/A') }}</td>
-                            <td>{{ record.get('AP IP', 'N/A') }}</td>
-                            <td>{{ record.get('CID', 'N/A') }}</td>
-                            <td>{{ record.get('SM IP', 'N/A') }}</td>
-                            <td>{{ record.get('Device Name', 'N/A') }}</td>
-                            <td>{{ record.get('Location', 'N/A') }}</td>
+        </div>
+        
+        <!-- Maintenance Mode Section -->
+        <div class="section">
+            <h2>Maintenance Mode</h2>
+            <p>Schedule maintenance windows to suppress alerts during planned downtime.</p>
+            
+            <div class="maintenance-controls">
+                <h3>Schedule Maintenance Window</h3>
+                <p>Select a device from the dropdown or enter an IP address manually. You can search by IP, device name, or location when entering manually.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="maintenanceIp">Device IP:</label>
+                        <select id="maintenanceIp">
+                            <option value="">Select Device...</option>
+                            <option value="manual">Enter IP Manually...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="maintenanceStart">Start Time:</label>
+                        <input type="datetime-local" id="maintenanceStart" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maintenanceEnd">End Time:</label>
+                        <input type="datetime-local" id="maintenanceEnd" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maintenanceReason">Reason:</label>
+                        <input type="text" id="maintenanceReason" placeholder="Scheduled maintenance" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <button type="button" onclick="addMaintenanceWindow()">Schedule Maintenance</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="maintenance-list">
+                <h3>Active Maintenance Windows</h3>
+                <div id="maintenanceContainer">
+                    <p>Loading maintenance windows...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- User Management Section -->
+        <div class="section">
+            <h2>User Management</h2>
+            <p>Manage system users and assign devices to technicians.</p>
+            
+            <div class="maintenance-controls">
+                <h3>Users</h3>
+                <button type="button" onclick="showAddUserModal()" style="margin-bottom: 15px;">➕ Add New User</button>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Last Login</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        {% for user_item in users %}
+                        <tr data-user-id="{{ user_item.id }}">
+                            <td>{{ user_item.username }}</td>
+                            <td>{{ user_item.email }}</td>
                             <td>
-                                <button onclick="editEntry('{{ record.get('SM IP') }}')">Edit</button>
-                                <button onclick="deleteEntry('{{ record.get('SM IP') }}')">Delete</button>
+                                <select class="user-role-select" data-user-id="{{ user_item.id }}" onchange="updateUserRole({{ user_item.id }}, this.value)">
+                                    <option value="user" {% if user_item.role == 'user' %}selected{% endif %}>User</option>
+                                    <option value="admin" {% if user_item.role == 'admin' %}selected{% endif %}>Admin</option>
+                                </select>
+                            </td>
+                            <td>
+                                <span class="status-badge {% if user_item.is_active %}status-active{% else %}status-inactive{% endif %}">
+                                    {{ 'Active' if user_item.is_active else 'Inactive' }}
+                                </span>
+                            </td>
+                            <td>{{ user_item.created_at }}</td>
+                            <td>{{ user_item.last_login or 'Never' }}</td>
+                            <td>
+                                <button onclick="toggleUserStatus({{ user_item.id }}, {{ user_item.is_active }})" 
+                                        class="btn-small {% if user_item.is_active %}btn-warning{% else %}btn-success{% endif %}">
+                                    {% if user_item.is_active %}Deactivate{% else %}Activate{% endif %}
+                                </button>
+                                {% if user_item.username != user.username %}
+                                <button onclick="deleteUser({{ user_item.id }}, '{{ user_item.username }}')" 
+                                        class="btn-small btn-danger">Delete</button>
+                                {% endif %}
                             </td>
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="maintenance-controls">
+                <h3>Device Assignment</h3>
+                <p>Assign devices to users for monitoring and maintenance. Users will receive email notifications.</p>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="assignDeviceIp">Device IP:</label>
+                        <select id="assignDeviceIp" required>
+                            <option value="">Select Device...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="assignUserId">Assign to User:</label>
+                        <select id="assignUserId" required>
+                            <option value="">Select User...</option>
+                            {% for user_item in users %}
+                                {% if user_item.is_active and user_item.role == 'user' %}
+                                <option value="{{ user_item.id }}">{{ user_item.username }} ({{ user_item.email }})</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="assignComment">Assignment Comment:</label>
+                        <textarea id="assignComment" placeholder="Optional comment about the assignment..." rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <button type="button" onclick="assignDevice()">Assign Device</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add User Modal -->
+        <div id="addUserModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeAddUserModal()">&times;</span>
+                <h2>Add New User</h2>
+                <form id="addUserForm" onsubmit="createUser(event)">
+                    <div class="form-group">
+                        <label for="newUsername">Username:</label>
+                        <input type="text" id="newUsername" required minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label for="newEmail">Email:</label>
+                        <input type="email" id="newEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">Password:</label>
+                        <input type="password" id="newPassword" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label for="newRole">Role:</label>
+                        <select id="newRole" required>
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Create User</button>
+                        <button type="button" onclick="closeAddUserModal()">Cancel</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
+    
+    <style>
+        .user-role-select {
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .btn-small {
+            padding: 5px 10px;
+            margin: 2px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 8px;
+            width: 500px;
+            max-width: 90%;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: #000;
+        }
+    </style>
+    
     <script>
+        // User Management Functions
+        function showAddUserModal() {
+            document.getElementById('addUserModal').style.display = 'block';
+        }
+        
+        function closeAddUserModal() {
+            document.getElementById('addUserModal').style.display = 'none';
+            document.getElementById('addUserForm').reset();
+        }
+        
+        function createUser(event) {
+            event.preventDefault();
+            
+            const userData = {
+                username: document.getElementById('newUsername').value,
+                email: document.getElementById('newEmail').value,
+                password: document.getElementById('newPassword').value,
+                role: document.getElementById('newRole').value
+            };
+            
+            fetch('/api/users', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(userData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    alert('User created successfully!');
+                    closeAddUserModal();
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('Error creating user: ' + error);
+            });
+        }
+        
+        function updateUserRole(userId, newRole) {
+            if (!confirm('Are you sure you want to change this user\'s role?')) {
+                location.reload();
+                return;
+            }
+            
+            fetch(`/api/users/${userId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ role: newRole })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    location.reload();
+                } else {
+                    alert('User role updated successfully!');
+                }
+            })
+            .catch(error => {
+                alert('Error updating role: ' + error);
+                location.reload();
+            });
+        }
+        
+        function toggleUserStatus(userId, isActive) {
+            const action = isActive ? 'deactivate' : 'activate';
+            if (!confirm(`Are you sure you want to ${action} this user?`)) {
+                return;
+            }
+            
+            fetch(`/api/users/${userId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ is_active: !isActive })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    alert(`User ${action}d successfully!`);
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('Error updating user status: ' + error);
+            });
+        }
+        
+        function deleteUser(userId, username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+                return;
+            }
+            
+            fetch(`/api/users/${userId}`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    alert('User deleted successfully!');
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('Error deleting user: ' + error);
+            });
+        }
+        
+        // Toggle Entry Management Section
+        document.getElementById('toggleEntryManagement').addEventListener('click', function() {
+            const section = document.getElementById('entryManagementSection');
+            const button = document.getElementById('toggleEntryManagement');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                button.textContent = 'Hide Entry Management';
+            } else {
+                section.classList.add('hidden');
+                button.textContent = 'Show Entry Management';
+            }
+        });
+        
+        // Load device IPs for maintenance and assignment
+        function loadDeviceIPs() {
+            console.log('Loading device IPs...');
+            fetch('/api/device_list')
+                .then(response => {
+                    console.log('Device list response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch device list: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Device data received:', data);
+                    
+                    // Update maintenance dropdown
+                    const maintenanceSelect = document.getElementById('maintenanceIp');
+                    if (maintenanceSelect) {
+                        maintenanceSelect.innerHTML = '<option value="">Select Device...</option><option value="manual">Enter IP Manually...</option>';
+                        
+                        if (data.devices && data.devices.length > 0) {
+                            data.devices.forEach(device => {
+                                const option = document.createElement('option');
+                                option.value = device.ip;
+                                option.textContent = `${device.ip} - ${device.name} (${device.location})`;
+                                maintenanceSelect.appendChild(option);
+                            });
+                            console.log(`Added ${data.devices.length} devices to maintenance dropdown`);
+                        } else {
+                            console.log('No devices found for maintenance dropdown');
+                        }
+                    } else {
+                        console.error('Maintenance select element not found');
+                    }
+                    
+                    // Update assignment dropdown
+                    const assignSelect = document.getElementById('assignDeviceIp');
+                    if (assignSelect) {
+                        assignSelect.innerHTML = '<option value="">Select Device...</option>';
+                        
+                        if (data.devices && data.devices.length > 0) {
+                            data.devices.forEach(device => {
+                                const option = document.createElement('option');
+                                option.value = device.ip;
+                                option.textContent = `${device.ip} - ${device.name} (${device.location})`;
+                                assignSelect.appendChild(option);
+                            });
+                            console.log(`Added ${data.devices.length} devices to assignment dropdown`);
+                        } else {
+                            console.log('No devices found for assignment dropdown');
+                        }
+                    } else {
+                        console.error('Assignment select element not found');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading devices:', error);
+                    alert('Failed to load device list: ' + error.message);
+                });
+        }
+        
+        // Load maintenance windows
+        function loadMaintenanceWindows() {
+            fetch('/api/maintenance')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch maintenance windows');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const container = document.getElementById('maintenanceContainer');
+                    const windows = data.maintenance_windows || {};
+                    
+                    if (Object.keys(windows).length === 0) {
+                        container.innerHTML = '<p>No active maintenance windows</p>';
+                    } else {
+                        const html = Object.entries(windows).map(([ip, maintenance]) => `
+                            <div class="maintenance-item">
+                                <div class="maintenance-header">
+                                    <span class="maintenance-ip">${ip}</span>
+                                    <button class="maintenance-remove" onclick="removeMaintenanceWindow('${ip}')">Remove</button>
+                                </div>
+                                <div class="maintenance-details">
+                                    <div><strong>Reason:</strong> ${maintenance.reason}</div>
+                                    <div><strong>Start:</strong> <span class="maintenance-time">${maintenance.start}</span></div>
+                                    <div><strong>End:</strong> <span class="maintenance-time">${maintenance.end}</span></div>
+                                    <div><strong>Remaining:</strong> ${maintenance.remaining}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                        container.innerHTML = html;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading maintenance windows:', error);
+                    document.getElementById('maintenanceContainer').innerHTML = '<p style="color: red;">Error loading maintenance windows</p>';
+                });
+        }
+        
+        // Add maintenance window
+        function addMaintenanceWindow() {
+            const ip = document.getElementById('maintenanceIp').value;
+            const startTime = document.getElementById('maintenanceStart').value;
+            const endTime = document.getElementById('maintenanceEnd').value;
+            const reason = document.getElementById('maintenanceReason').value || 'Scheduled maintenance';
+            
+            if (!ip || ip === 'manual') {
+                alert('Please select a device IP');
+                return;
+            }
+            
+            if (!startTime || !endTime) {
+                alert('Please select both start and end times');
+                return;
+            }
+            
+            fetch('/api/maintenance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sm_ip: ip,
+                    start_time: startTime,
+                    end_time: endTime,
+                    reason: reason
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Maintenance window scheduled successfully');
+                    loadMaintenanceWindows();
+                    // Clear form
+                    document.getElementById('maintenanceIp').value = '';
+                    document.getElementById('maintenanceStart').value = '';
+                    document.getElementById('maintenanceEnd').value = '';
+                    document.getElementById('maintenanceReason').value = '';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error scheduling maintenance window');
+            });
+        }
+        
+        // Remove maintenance window
+        function removeMaintenanceWindow(ip) {
+            if (!confirm(`Remove maintenance window for ${ip}?`)) return;
+            
+            fetch(`/api/maintenance/${ip}`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Maintenance window removed');
+                        loadMaintenanceWindows();
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error removing maintenance window');
+                });
+        }
+        
+        // Assign device
+        function assignDevice() {
+            const deviceIp = document.getElementById('assignDeviceIp').value;
+            const userId = document.getElementById('assignUserId').value;
+            const comment = document.getElementById('assignComment').value;
+            
+            if (!deviceIp) {
+                alert('Please select a device');
+                return;
+            }
+            
+            if (!userId) {
+                alert('Please select a user');
+                return;
+            }
+            
+            fetch('/api/assign_device', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_ip: deviceIp,
+                    user_id: parseInt(userId),
+                    comment: comment
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    // Clear form
+                    document.getElementById('assignDeviceIp').value = '';
+                    document.getElementById('assignUserId').value = '';
+                    document.getElementById('assignComment').value = '';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error assigning device');
+            });
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Admin panel loaded, initializing...');
+            loadDeviceIPs();
+            loadMaintenanceWindows();
+            
+            // Refresh maintenance windows every 30 seconds
+            setInterval(loadMaintenanceWindows, 30000);
+        });
+        
+        // Entry management functions
         $(document).ready(function() {
             $('#add-entry-form').submit(function(e) {
                 e.preventDefault();
@@ -233,26 +977,39 @@
                 sm_ip: sm_ip,
                 ap_name: row.find('td').eq(0).text(),
                 ap_ip: row.find('td').eq(1).text(),
-                ap_mac: row.find('td').eq(2).text(),
+                cid: row.find('td').eq(2).text(),
                 org_name: row.find('td').eq(4).text(),
-                sm_mac: row.find('td').eq(5).text(),
-                location: row.find('td').eq(6).text()
+                location: row.find('td').eq(5).text()
             };
             const form = $('#add-entry-form');
-            $('#sm_ip').val(data.sm_ip).prop('disabled', true);
+            
+            // Store the original SM IP for reference
+            const originalSmIp = sm_ip;
+            
+            // Enable SM IP field for editing
+            $('#sm_ip').val(data.sm_ip).prop('disabled', false);
             $('#ap_name').val(data.ap_name);
             $('#ap_ip').val(data.ap_ip);
-            $('#ap_mac').val(data.ap_mac);
+            $('#cid').val(data.cid);
             $('#org_name').val(data.org_name);
-            $('#sm_mac').val(data.sm_mac);
             $('#location').val(data.location);
+            
             form.off('submit').submit(function(e) {
                 e.preventDefault();
+                const updatedData = {
+                    old_sm_ip: originalSmIp,  // Send the original SM IP
+                    sm_ip: $('#sm_ip').val(),  // Send the new SM IP (can be same as old)
+                    ap_name: $('#ap_name').val(),
+                    ap_ip: $('#ap_ip').val(),
+                    cid: $('#cid').val(),
+                    org_name: $('#org_name').val(),
+                    location: $('#location').val()
+                };
                 $.ajax({
                     url: '/admin/update_entry',
                     type: 'POST',
                     contentType: 'application/json',
-                    data: JSON.stringify(data),
+                    data: JSON.stringify(updatedData),
                     success: function(response) {
                         alert(response.success || 'Entry updated');
                         location.reload();

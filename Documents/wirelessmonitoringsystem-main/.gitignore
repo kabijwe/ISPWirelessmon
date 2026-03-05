@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+ping_history.db*
+
+# Logs
+*.log
+logs/*.jsonl
+ping_debug.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+ISPwireless-mirror/
+ISPwireless.git/
+*.xlsx
+sm_ips.xlsx
+
+# Documentation (keep in repo but ignore temp files)
+*.md~
+
+# Test files
+test_*.py
+test_*.html
+debug_*.py
+create_demo_users.py
+
+# Workspace files
+*.code-workspace

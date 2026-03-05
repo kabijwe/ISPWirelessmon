@@ -78,7 +78,7 @@ python ping.py
 
 ### 5. Access Dashboard
 - **Main Dashboard**: http://localhost:5000
-- **Admin Panel**: http://localhost:5000/admin/login
+- **Admin Panel**: http://localhost:5000/admin
 - **Default Credentials**: admin / admin123
 
 ## 📊 Dashboard Overview
@@ -254,7 +254,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🎯 Roadmap
 
 ### Planned Features
-- **SNMP Support**: Monitor additional device metrics
 - **Email Alerts**: Automated notification system
 - **API Endpoints**: RESTful API for external integrations
 - **Advanced Charts**: Enhanced visualization options

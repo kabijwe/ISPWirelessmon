@@ -1,0 +1,1818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Tasks - Network Monitor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #1a73e8;
+            font-size: 28px;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .nav-btn {
+            padding: 10px 20px;
+            background: #1a73e8;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .nav-btn:hover {
+            background: #1557b0;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1a73e8;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 13px;
+            text-transform: uppercase;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .tab-btn {
+            padding: 12px 24px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            flex: 1;
+        }
+        
+        .tab-btn.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+        
+        .task-section {
+            display: none;
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .task-section.active {
+            display: block;
+        }
+        
+        .section-title {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .device-list {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .device-item {
+            display: grid;
+            grid-template-columns: 50px 1fr auto;
+            gap: 15px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            align-items: center;
+            transition: all 0.3s;
+        }
+        
+        .device-item:hover {
+            border-color: #1a73e8;
+            box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2);
+        }
+        
+        .device-number {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #1a73e8;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .device-info {
+            flex: 1;
+        }
+        
+        .device-ip {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1a73e8;
+            margin-bottom: 5px;
+        }
+        
+        .device-name {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .device-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: #999;
+        }
+        
+        .device-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .status-down {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status-degraded {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+        
+        .status-in-progress {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .status-closed {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .action-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .btn-assign {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-close {
+            background: #f44336;
+            color: white;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            margin: 50px auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .modal-close {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .form-textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .form-submit {
+            width: 100%;
+            padding: 12px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .form-submit:hover {
+            background: #1557b0;
+        }
+        
+        /* Custom Dialog Styles */
+        .custom-dialog {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .custom-dialog.show {
+            display: flex;
+        }
+        
+        .dialog-content {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        .dialog-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .dialog-message {
+            font-size: 15px;
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .dialog-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .dialog-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .dialog-btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+        
+        .dialog-btn-primary:hover {
+            background: #1557b0;
+        }
+        
+        .dialog-btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+        
+        .dialog-btn-secondary:hover {
+            background: #d0d0d0;
+        }
+        
+        .dialog-btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .dialog-btn-danger:hover {
+            background: #d32f2f;
+        }
+        
+        /* Ping buttons in form */
+        .ping-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .ping-btn {
+            flex: 1;
+            padding: 10px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .ping-btn:hover {
+            background: #45a049;
+        }
+        
+        .ping-btn.ping-ap {
+            background: #ff9800;
+        }
+        
+        .ping-btn.ping-ap:hover {
+            background: #f57c00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 My Tasks Dashboard</h1>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">🏠 Dashboard</a>
+                {% if user.role == 'admin' %}
+                <a href="/admin" class="nav-btn">⚙️ Admin</a>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-value" id="monthlyDone">0</div>
+                <div class="stat-label">Monthly Done</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⏱️</div>
+                <div class="stat-value" id="avgDuration">0h</div>
+                <div class="stat-label">Avg Duration</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-value" id="totalClosed">0</div>
+                <div class="stat-label">Total Closed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔄</div>
+                <div class="stat-value" id="openTasks">0</div>
+                <div class="stat-label">Open Tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-value" id="inProgressTasks">0</div>
+                <div class="stat-label">In Progress</div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('available')">🔍 Available Devices</button>
+            <button class="tab-btn" onclick="switchTab('my-tasks')">📝 My Tasks</button>
+            <button class="tab-btn" style="background: #4caf50; color: white; border-color: #4caf50;" onclick="openCreateTaskModal()">➕ Create Task</button>
+        </div>
+        
+        <div class="task-section active" id="available-section">
+            <h2 class="section-title">Available Devices (Down & Degraded)</h2>
+            <div class="device-list" id="availableDevices">
+                <div class="empty-state">
+                    <div class="empty-icon">⏳</div>
+                    <div>Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="task-section" id="my-tasks-section">
+            <h2 class="section-title">My Assigned Tasks</h2>
+            <div class="device-list" id="myTasksList">
+                <div class="empty-state">
+                    <div class="empty-icon">⏳</div>
+                    <div>Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="closeTaskModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>✅ Close Task</h3>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div id="closeTaskDetails" style="margin-bottom: 20px; max-height: 400px; overflow-y: auto;">
+                <p>Loading task details...</p>
+            </div>
+            <form onsubmit="submitCloseTask(event)">
+                <div class="form-group">
+                    <label class="form-label">Resolution Notes</label>
+                    <textarea class="form-textarea" id="resolutionText" placeholder="Describe how you resolved this issue..." required></textarea>
+                </div>
+                <button type="submit" class="form-submit">Close Task</button>
+            </form>
+        </div>
+    </div>
+    
+    <div class="modal" id="taskDetailsModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>📋 Task Details</h3>
+                <button class="modal-close" onclick="closeTaskDetailsModal()">×</button>
+            </div>
+            <div id="taskDetailsContent">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="deviceDetailsModal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>📱 Device Details</h3>
+                <button class="modal-close" onclick="closeDeviceDetailsModal()">×</button>
+            </div>
+            <div id="deviceDetailsContent">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Reassign Task Modal (Admin Only) -->
+    {% if user.role == 'admin' %}
+    <div class="modal" id="reassignTaskModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>🔄 Reassign Task</h3>
+                <button class="modal-close" onclick="closeReassignModal()">×</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="form-group">
+                    <label class="form-label">Reassign to User:</label>
+                    <select class="form-input" id="reassignUserSelect" required>
+                        <option value="">Select a user...</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button onclick="submitReassign()" style="flex: 1; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;">Reassign Task</button>
+                    <button onclick="closeReassignModal()" style="flex: 1; padding: 12px; background: #757575; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="modal" id="createTaskModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>➕ Create New Task</h3>
+                <button class="modal-close" onclick="closeCreateTaskModal()">×</button>
+            </div>
+            <form onsubmit="submitCreateTask(event)">
+                <div class="form-group">
+                    <label class="form-label">Device</label>
+                    <select class="form-input" id="taskDeviceSelect" required>
+                        <option value="">Select a device...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Task Title</label>
+                    <input type="text" class="form-input" id="taskTitle" placeholder="e.g., Fix connectivity issue" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-textarea" id="taskDescription" placeholder="Describe the issue or task..." required></textarea>
+                    <div class="ping-buttons" id="pingButtonsContainer" style="display: none;">
+                        <button type="button" class="ping-btn" onclick="forcePingSM()">🔧 Force Ping SM</button>
+                        <button type="button" class="ping-btn ping-ap" onclick="forcePingAP()">📡 Force Ping AP</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-input" id="taskPriority" required>
+                        <option value="high">🔴 High</option>
+                        <option value="medium" selected>🟡 Medium</option>
+                        <option value="low">🟢 Low</option>
+                    </select>
+                </div>
+                {% if user.role == 'admin' %}
+                <div class="form-group">
+                    <label class="form-label">Assign To</label>
+                    <select class="form-input" id="taskAssignUser">
+                        <option value="self">Myself</option>
+                    </select>
+                </div>
+                {% endif %}
+                <button type="submit" class="form-submit">Create Task</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Custom Dialog -->
+    <div class="custom-dialog" id="customDialog">
+        <div class="dialog-content">
+            <div class="dialog-title" id="dialogTitle">Confirm</div>
+            <div class="dialog-message" id="dialogMessage">Are you sure?</div>
+            <div class="dialog-buttons" id="dialogButtons">
+                <button class="dialog-btn dialog-btn-secondary" onclick="closeDialog()">Cancel</button>
+                <button class="dialog-btn dialog-btn-primary" onclick="confirmDialog()">OK</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentTaskId = null;
+        let dialogCallback = null;
+        let currentDeviceData = null;
+        
+        // Custom Dialog Functions
+        function showDialog(title, message, type = 'confirm') {
+            return new Promise((resolve) => {
+                document.getElementById('dialogTitle').textContent = title;
+                document.getElementById('dialogMessage').innerHTML = message;
+                document.getElementById('customDialog').classList.add('show');
+                
+                dialogCallback = resolve;
+                
+                const buttonsContainer = document.getElementById('dialogButtons');
+                if (type === 'alert') {
+                    buttonsContainer.innerHTML = '<button class="dialog-btn dialog-btn-primary" onclick="closeDialog(true)">OK</button>';
+                } else if (type === 'confirm') {
+                    buttonsContainer.innerHTML = `
+                        <button class="dialog-btn dialog-btn-secondary" onclick="closeDialog(false)">Cancel</button>
+                        <button class="dialog-btn dialog-btn-primary" onclick="closeDialog(true)">OK</button>
+                    `;
+                }
+            });
+        }
+        
+        function closeDialog(result = false) {
+            document.getElementById('customDialog').classList.remove('show');
+            if (dialogCallback) {
+                dialogCallback(result);
+                dialogCallback = null;
+            }
+        }
+        
+        function showAlert(title, message) {
+            return showDialog(title, message, 'alert');
+        }
+        
+        function showConfirm(title, message) {
+            return showDialog(title, message, 'confirm');
+        }
+        
+        // Force Ping Functions
+        async function forcePingSM() {
+            if (!currentDeviceData) {
+                await showAlert('Error', 'Please select a device first');
+                return;
+            }
+            
+            const confirmed = await showConfirm('Force Ping SM', `Ping SM IP: ${currentDeviceData.sm_ip}?`);
+            if (!confirmed) return;
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: currentDeviceData.sm_ip, type: 'sm' })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    // Format status with color
+                    const statusColor = data.status === 'Reachable' ? '#4caf50' : '#f44336';
+                    const statusText = `<strong style="color: ${statusColor};">${data.status}</strong>`;
+                    const message = `SM ${currentDeviceData.sm_ip}: ${statusText}<br>Latency: ${data.latency || 'N/A'}`;
+                    await showAlert('Ping Result', message);
+                    
+                    // Add comment to device
+                    const commentText = `Manual SM ping: ${data.status}${data.latency ? ` (${data.latency})` : ''}`;
+                    await fetch('/api/add_device_comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sm_ip: currentDeviceData.sm_ip,
+                            comment: commentText,
+                            type: 'ping_result'
+                        })
+                    });
+                } else {
+                    await showAlert('Error', data.error || 'Ping failed');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to ping: ' + error.message);
+            });
+        }
+        
+        async function forcePingAP() {
+            if (!currentDeviceData) {
+                await showAlert('Error', 'Please select a device first');
+                return;
+            }
+            
+            const confirmed = await showConfirm('Force Ping AP', `Ping AP IP: ${currentDeviceData.ap_ip}?`);
+            if (!confirmed) return;
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: currentDeviceData.ap_ip, type: 'ap' })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    // Format status with color
+                    const statusColor = data.status === 'Reachable' ? '#4caf50' : '#f44336';
+                    const statusText = `<strong style="color: ${statusColor};">${data.status}</strong>`;
+                    const message = `AP ${currentDeviceData.ap_ip}: ${statusText}<br>Latency: ${data.latency || 'N/A'}`;
+                    await showAlert('Ping Result', message);
+                    
+                    // Add comment to device
+                    const commentText = `Manual AP ping: ${data.status}${data.latency ? ` (${data.latency})` : ''}`;
+                    await fetch('/api/add_device_comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sm_ip: currentDeviceData.sm_ip,
+                            comment: commentText,
+                            type: 'ping_result'
+                        })
+                    });
+                } else {
+                    await showAlert('Error', data.error || 'Ping failed');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to ping: ' + error.message);
+            });
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatistics();
+            loadAvailableDevices();
+            loadMyTasks();
+            loadDevicesForDropdown();
+            {% if user.role == 'admin' %}
+            loadUsersForDropdown();
+            {% endif %}
+            
+            // Check if URL has ?tab=my-tasks parameter to auto-switch to My Tasks tab
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+            const taskId = urlParams.get('task');
+            
+            if (tab === 'my-tasks') {
+                // Switch to My Tasks tab
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-btn')[1].classList.add('active'); // Second tab is My Tasks
+                document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
+                document.getElementById('my-tasks-section').classList.add('active');
+            }
+            
+            // If task ID is provided, open task details modal
+            if (taskId) {
+                setTimeout(() => {
+                    showTaskDetails(parseInt(taskId));
+                }, 500);
+            }
+            
+            setInterval(() => {
+                loadStatistics();
+                loadAvailableDevices();
+                loadMyTasks();
+            }, 30000);
+        });
+        
+        function loadDevicesForDropdown() {
+            fetch('/api/all_devices_for_tasks')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const select = document.getElementById('taskDeviceSelect');
+                        select.innerHTML = '<option value="">Select a device...</option>';
+                        
+                        // Store device details for later use
+                        window.deviceDetailsMap = {};
+                        
+                        data.devices.forEach(device => {
+                            const option = document.createElement('option');
+                            option.value = device.sm_ip;
+                            option.textContent = `${device.sm_ip} - ${device.device_name} (${device.location}) - ${device.status}`;
+                            select.appendChild(option);
+                            
+                            // Store full device details
+                            window.deviceDetailsMap[device.sm_ip] = device;
+                        });
+                        
+                        // Add change event to auto-fill form
+                        select.onchange = function() {
+                            const selectedIp = this.value;
+                            console.log('Device selected:', selectedIp);
+                            
+                            if (selectedIp && window.deviceDetailsMap[selectedIp]) {
+                                const device = window.deviceDetailsMap[selectedIp];
+                                currentDeviceData = device; // Store for ping functions
+                                
+                                console.log('Device data:', device);
+                                console.log('Showing ping buttons');
+                                
+                                // Show ping buttons
+                                const pingContainer = document.getElementById('pingButtonsContainer');
+                                if (pingContainer) {
+                                    pingContainer.style.display = 'flex';
+                                    console.log('Ping buttons container display set to flex');
+                                } else {
+                                    console.error('Ping buttons container not found!');
+                                }
+                                
+                                // Auto-fill title
+                                document.getElementById('taskTitle').value = `Fix ${device.device_name} - ${selectedIp}`;
+                                
+                                // Auto-fill description with full device details
+                                const description = `Device Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📍 SM IP: ${device.sm_ip}
+📱 Device Name: ${device.device_name}
+📍 Location: ${device.location}
+🔴 Status: ${device.status}
+⏱️ Latency: ${device.latency}
+
+Access Point Information:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 AP Name: ${device.ap_name}
+🌐 AP IP: ${device.ap_ip}
+🆔 CID: ${device.cid}
+
+Task Notes:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Please investigate and resolve the issue.`;
+                                
+                                document.getElementById('taskDescription').value = description;
+                            } else {
+                                console.log('No device selected or not found, hiding ping buttons');
+                                // Hide ping buttons if no device selected
+                                const pingContainer = document.getElementById('pingButtonsContainer');
+                                if (pingContainer) {
+                                    pingContainer.style.display = 'none';
+                                }
+                                currentDeviceData = null;
+                            }
+                        };
+                    }
+                })
+                .catch(error => console.error('Error loading devices:', error));
+        }
+        
+        {% if user.role == 'admin' %}
+        function loadUsersForDropdown() {
+            fetch('/api/users')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const select = document.getElementById('taskAssignUser');
+                        select.innerHTML = '<option value="self">Myself</option>';
+                        data.users.forEach(user => {
+                            if (user.username !== '{{ user.username }}') {
+                                const option = document.createElement('option');
+                                option.value = user.username;
+                                option.textContent = `${user.username} (${user.role})`;
+                                select.appendChild(option);
+                            }
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading users:', error));
+        }
+        {% endif %}
+        
+        function openCreateTaskModal() {
+            loadDevicesForDropdown();
+            document.getElementById('createTaskModal').style.display = 'block';
+        }
+        
+        function closeCreateTaskModal() {
+            document.getElementById('createTaskModal').style.display = 'none';
+            document.getElementById('taskDeviceSelect').value = '';
+            document.getElementById('taskTitle').value = '';
+            document.getElementById('taskDescription').value = '';
+            document.getElementById('taskPriority').value = 'medium';
+        }
+        
+        function submitCreateTask(event) {
+            event.preventDefault();
+            const smIp = document.getElementById('taskDeviceSelect').value;
+            const title = document.getElementById('taskTitle').value;
+            const description = document.getElementById('taskDescription').value;
+            const priority = document.getElementById('taskPriority').value;
+            
+            let assignTo = null;
+            let assignToSelf = true;
+            {% if user.role == 'admin' %}
+            const assignUser = document.getElementById('taskAssignUser').value;
+            if (assignUser !== 'self') {
+                assignTo = assignUser;
+                assignToSelf = false;
+            }
+            {% endif %}
+            
+            const payload = {
+                sm_ip: smIp,
+                title: title,
+                description: description,
+                priority: priority,
+                assign_to_self: assignToSelf
+            };
+            
+            if (assignTo) {
+                payload.assigned_to = assignTo;
+            }
+            
+            fetch('/api/create_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Task created successfully!');
+                    closeCreateTaskModal();
+                    loadStatistics();
+                    loadAvailableDevices();
+                    loadMyTasks();
+                    switchTab('my-tasks');
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error creating task: ' + error.message);
+            });
+        }
+        
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            // Find and activate the correct tab button
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            if (tab === 'available') {
+                tabButtons[0].classList.add('active');
+            } else if (tab === 'my-tasks') {
+                tabButtons[1].classList.add('active');
+            }
+            
+            document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
+            if (tab === 'available') {
+                document.getElementById('available-section').classList.add('active');
+            } else {
+                document.getElementById('my-tasks-section').classList.add('active');
+            }
+        }
+        
+        function loadStatistics() {
+            fetch('/api/task_statistics')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('monthlyDone').textContent = data.monthly_done;
+                        document.getElementById('avgDuration').textContent = data.avg_duration_hours.toFixed(1) + 'h';
+                        document.getElementById('totalClosed').textContent = data.total_closed;
+                        document.getElementById('openTasks').textContent = data.open_tasks;
+                        document.getElementById('inProgressTasks').textContent = data.in_progress_tasks;
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+        
+        function loadAvailableDevices() {
+            fetch('/api/all_devices_for_tasks')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('API Response:', data);
+                    const container = document.getElementById('availableDevices');
+                    
+                    if (data.debug) {
+                        console.log('Debug info:', data.debug);
+                        console.log('All statuses found:', data.debug.all_statuses);
+                        console.log('Status counts:', data.debug.status_counts);
+                    }
+                    
+                    if (!data.success) {
+                        container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>Error: ${data.error || 'Unknown error'}</div></div>`;
+                        return;
+                    }
+                    
+                    if (data.devices.length === 0) {
+                        let debugInfo = '';
+                        if (data.debug && data.debug.status_counts) {
+                            const statusList = Object.entries(data.debug.status_counts)
+                                .map(([status, count]) => `${status}: ${count}`)
+                                .join(', ');
+                            debugInfo = `<br><small style="color: #666;">Total: ${data.debug.total_devices}<br>Statuses: ${statusList}</small>`;
+                        }
+                        container.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div>No Down or Degraded devices${debugInfo}</div></div>`;
+                        return;
+                    }
+                    
+                    container.innerHTML = '';
+                    data.devices.forEach((device, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'device-item';
+                        const statusClass = device.status.toLowerCase().includes('down') ? 'status-down' : 'status-degraded';
+                        
+                        // Check if device is assigned to someone else
+                        const isAssignedToOther = device.assigned_to && device.assigned_to !== '';
+                        
+                        // Make the device info clickable to show details
+                        item.style.cursor = 'pointer';
+                        item.onclick = function(e) {
+                            // Don't trigger if clicking the button
+                            if (!e.target.classList.contains('action-btn')) {
+                                showDeviceDetailsModal(device);
+                            }
+                        };
+                        
+                        // Build assignment info display
+                        let assignmentInfo = '';
+                        if (isAssignedToOther) {
+                            assignmentInfo = `<div style="color: #ff9800; font-size: 12px; margin-top: 4px;">👤 Assigned to ${device.assigned_to}</div>`;
+                        }
+                        
+                        item.innerHTML = `
+                            <div class="device-number">${index + 1}</div>
+                            <div class="device-info">
+                                <div class="device-ip">📍 ${device.sm_ip}</div>
+                                <div class="device-name">${device.device_name} • ${device.location}</div>
+                                <div class="device-meta">
+                                    <span>⏱️ ${device.latency !== 'N/A' ? device.latency + 'ms' : 'N/A'}</span>
+                                </div>
+                                ${assignmentInfo}
+                            </div>
+                            <div class="device-actions">
+                                <span class="status-badge ${statusClass}">${device.status}</span>
+                                ${!isAssignedToOther ? `<button class="action-btn btn-assign" onclick="event.stopPropagation(); showDeviceDetailsModal(${JSON.stringify(device).replace(/"/g, '&quot;')})">✋ Assign to Me</button>` : ''}
+                            </div>
+                        `;
+                        container.appendChild(item);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading devices:', error);
+                    document.getElementById('availableDevices').innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>Error loading devices: ${error.message}</div></div>`;
+                });
+        }
+        
+        function loadMyTasks() {
+            fetch('/api/my_tasks_list')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('myTasksList');
+                    if (!data.success || data.tasks.length === 0) {
+                        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>No tasks assigned</div></div>';
+                        return;
+                    }
+                    container.innerHTML = '';
+                    data.tasks.forEach((task, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'device-item';
+                        item.style.cursor = 'pointer';
+                        let statusClass = task.status === 'in_progress' ? 'status-in-progress' : task.status === 'closed' ? 'status-closed' : 'status-down';
+                        
+                        // Show assigned user for admin
+                        const assignedInfo = task.assigned_to ? `<span style="font-size: 12px; color: #666;">👤 ${task.assigned_to}</span>` : '';
+                        
+                        item.innerHTML = `
+                            <div class="device-number">${index + 1}</div>
+                            <div class="device-info">
+                                <div class="device-ip">� ${task.sm_ip}</div>
+                                <div class="device-name">${task.title}</div>
+                                <div class="device-meta">
+                                    <span>📅 ${new Date(task.created_at).toLocaleString()}</span>
+                                    ${assignedInfo}
+                                </div>
+                            </div>
+                            <div class="device-actions">
+                                <span class="status-badge ${statusClass}">${task.status.replace('_', ' ')}</span>
+                            </div>
+                        `;
+                        // Make entire card clickable to open task details
+                        item.onclick = () => openTaskDetailsModal(task.id);
+                        container.appendChild(item);
+                    });
+                })
+                .catch(error => console.error('Error:', error));
+        }
+        
+        
+        function openCloseModal(taskId) {
+            currentTaskId = taskId;
+            
+            // Load task details to show in close modal
+            fetch(`/api/task/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const task = data.task;
+                        const statusClass = task.status === 'in_progress' ? 'status-in-progress' : 'status-down';
+                        const statusBadge = `<span class="status-badge ${statusClass}" style="display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px;">${task.status.replace('_', ' ').toUpperCase()}</span>`;
+                        
+                        const detailsHtml = `
+                            <div style="background: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                                <h4 style="margin: 0 0 10px 0; color: #333;">${task.title}</h4>
+                                ${statusBadge}
+                                <div style="margin-top: 10px;">
+                                    <div style="margin-bottom: 8px;"><strong>📍 Device IP:</strong> ${task.sm_ip}</div>
+                                    <div style="margin-bottom: 8px;"><strong>👤 Assigned To:</strong> ${task.assigned_to}</div>
+                                    <div style="margin-bottom: 8px;"><strong>📅 Created:</strong> ${new Date(task.created_at).toLocaleString()}</div>
+                                    <div style="margin-bottom: 8px;"><strong>🎯 Priority:</strong> ${task.priority.toUpperCase()}</div>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <strong>📝 Task Description:</strong>
+                                <pre style="background: white; padding: 12px; border-radius: 8px; border: 1px solid #e0e0e0; white-space: pre-wrap; font-family: 'Segoe UI', sans-serif; font-size: 12px; line-height: 1.5; max-height: 200px; overflow-y: auto;">${task.description}</pre>
+                            </div>
+                        `;
+                        
+                        document.getElementById('closeTaskDetails').innerHTML = detailsHtml;
+                        document.getElementById('closeTaskModal').style.display = 'block';
+                    } else {
+                        showAlert('Error', 'Failed to load task details');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading task for close:', error);
+                    showAlert('Error', 'Failed to load task details');
+                });
+        }
+        
+        function closeModal() {
+            document.getElementById('closeTaskModal').style.display = 'none';
+        }
+        
+        function submitCloseTask(event) {
+            event.preventDefault();
+            const resolution = document.getElementById('resolutionText').value;
+            fetch(`/api/update_task/${currentTaskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'closed', resolution: resolution })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    await showAlert('Success', 'Task closed successfully!');
+                    closeModal();
+                    closeTaskDetailsModal();
+                    loadStatistics();
+                    loadMyTasks();
+                } else {
+                    await showAlert('Error', data.error || 'Failed to close task');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to close task: ' + error.message);
+            });
+        }
+        
+        function showTaskDetails(taskId) {
+            fetch(`/api/task/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const task = data.task;
+                        const statusClass = task.status === 'in_progress' ? 'status-in-progress' : task.status === 'closed' ? 'status-closed' : 'status-down';
+                        const statusBadge = `<span class="status-badge ${statusClass}" style="display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px;">${task.status.replace('_', ' ').toUpperCase()}</span>`;
+                        
+                        const content = `
+                            <div style="margin-bottom: 20px;">
+                                <h4 style="margin: 0 0 10px 0; color: #333;">${task.title}</h4>
+                                ${statusBadge}
+                            </div>
+                            
+                            <div style="background: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                                <div style="margin-bottom: 10px;"><strong>📍 Device IP:</strong> ${task.sm_ip}</div>
+                                <div style="margin-bottom: 10px;"><strong>👤 Assigned To:</strong> ${task.assigned_to}</div>
+                                <div style="margin-bottom: 10px;"><strong>📅 Created:</strong> ${new Date(task.created_at).toLocaleString()}</div>
+                                <div style="margin-bottom: 10px;"><strong>🎯 Priority:</strong> ${task.priority.toUpperCase()}</div>
+                                ${task.closed_at ? `<div style="margin-bottom: 10px;"><strong>✅ Closed:</strong> ${new Date(task.closed_at).toLocaleString()}</div>` : ''}
+                            </div>
+                            
+                            ${task.status !== 'closed' ? `
+                            <div style="margin-bottom: 15px;">
+                                <strong>🔧 Quick Actions:</strong>
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <button class="ping-btn" onclick="forcePingFromTask('${task.sm_ip}', '${task.sm_ip}', 'sm')" style="flex: 1; padding: 10px; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">🔧 Force Ping SM</button>
+                                    <button class="ping-btn ping-ap" onclick="forcePingFromTask('${task.sm_ip}', '${task.description.match(/🌐 AP IP: ([\d.]+)/) ? task.description.match(/🌐 AP IP: ([\d.]+)/)[1] : ''}', 'ap')" style="flex: 1; padding: 10px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">📡 Force Ping AP</button>
+                                </div>
+                            </div>
+                            ` : ''}
+                            
+                            <div style="margin-bottom: 15px;">
+                                <strong>📝 Description:</strong>
+                                <pre style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; white-space: pre-wrap; font-family: 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;">${task.description}</pre>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <strong>💬 Comments & Notes:</strong>
+                                <div id="taskCommentsList" style="max-height: 200px; overflow-y: auto; margin-top: 10px; margin-bottom: 10px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px; background: white;">
+                                    <div style="text-align: center; padding: 20px; color: #999;">Loading comments...</div>
+                                </div>
+                                ${task.status !== 'closed' ? `
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <textarea id="taskCommentText" placeholder="Add a comment or note..." style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 13px; resize: vertical; min-height: 60px; font-family: 'Segoe UI', sans-serif;"></textarea>
+                                </div>
+                                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                    <button onclick="addTaskComment('${task.sm_ip}')" style="flex: 1; padding: 10px; background: #2196f3; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">💬 Add Comment</button>
+                                </div>
+                                ` : ''}
+                            </div>
+                            
+                            ${task.resolution ? `
+                            <div style="margin-bottom: 15px;">
+                                <strong>✅ Resolution:</strong>
+                                <pre style="background: #e8f5e9; padding: 15px; border-radius: 8px; border: 1px solid #c8e6c9; white-space: pre-wrap; font-family: 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;">${task.resolution}</pre>
+                            </div>
+                            ` : `
+                            <div style="margin-bottom: 15px;">
+                                <strong>✅ Resolution Notes:</strong>
+                                <textarea id="taskResolutionText" placeholder="Describe how you resolved this issue..." style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; resize: vertical; min-height: 100px; font-family: 'Segoe UI', sans-serif;"></textarea>
+                            </div>
+                            `}
+                            
+                            ${task.status !== 'closed' ? `
+                            <div style="text-align: right; margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                                {% if user.role == 'admin' %}
+                                <button class="action-btn" onclick="showReassignModal(${task.id}, '${task.assigned_to}')" style="padding: 12px 24px; font-size: 14px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">🔄 Reassign</button>
+                                {% endif %}
+                                <button class="action-btn btn-close" onclick="closeTaskDirectly(${task.id})" style="padding: 12px 24px; font-size: 14px; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✅ Close Task</button>
+                            </div>
+                            ` : ''}
+                        `;
+                        
+                        document.getElementById('taskDetailsContent').innerHTML = content;
+                        document.getElementById('taskDetailsModal').style.display = 'block';
+                        
+                        // Load comments for this device
+                        loadTaskComments(task.sm_ip);
+                    } else {
+                        showAlert('Error', 'Failed to load task details');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Error', 'Failed to load task details: ' + error.message);
+                });
+        }
+        
+        function closeTaskDetailsModal() {
+            document.getElementById('taskDetailsModal').style.display = 'none';
+        }
+        
+        // Alias for opening task details modal (called from My Tasks cards)
+        function openTaskDetailsModal(taskId) {
+            showTaskDetails(taskId);
+        }
+        
+        async function closeTaskDirectly(taskId) {
+            const resolutionText = document.getElementById('taskResolutionText').value.trim();
+            
+            if (!resolutionText) {
+                await showAlert('Required', 'Please enter resolution notes before closing the task');
+                return;
+            }
+            
+            const confirmed = await showConfirm('Close Task', 'Are you sure you want to close this task?');
+            if (!confirmed) return;
+            
+            fetch(`/api/update_task/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'closed', resolution: resolutionText })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    // Show success message with optional AP warning
+                    let message = 'Task closed successfully!';
+                    if (data.warning) {
+                        message += '\n\n⚠️ ' + data.warning;
+                    }
+                    await showAlert('Success', message);
+                    closeTaskDetailsModal();
+                    loadStatistics();
+                    loadMyTasks();
+                } else {
+                    await showAlert('Error', data.error || 'Failed to close task');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to close task: ' + error.message);
+            });
+        }
+        
+        function loadTaskComments(smIp) {
+            fetch(`/api/device_comments/${smIp}`)
+                .then(response => response.json())
+                .then(data => {
+                    const commentsList = document.getElementById('taskCommentsList');
+                    if (data.success && data.comments && data.comments.length > 0) {
+                        commentsList.innerHTML = '';
+                        data.comments.forEach(comment => {
+                            const commentDiv = document.createElement('div');
+                            commentDiv.style.cssText = 'background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #1a73e8;';
+                            commentDiv.innerHTML = `
+                                <div style="font-size: 11px; color: #666; margin-bottom: 5px;">
+                                    <strong>${comment.username}</strong> • ${new Date(comment.timestamp).toLocaleString()}
+                                </div>
+                                <div style="font-size: 13px; color: #333;">${comment.comment}</div>
+                            `;
+                            commentsList.appendChild(commentDiv);
+                        });
+                        // Auto-scroll to bottom to show latest comment
+                        commentsList.scrollTop = commentsList.scrollHeight;
+                    } else {
+                        commentsList.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No comments yet</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading comments:', error);
+                    document.getElementById('taskCommentsList').innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Error loading comments</div>';
+                });
+        }
+        
+        async function addTaskComment(smIp) {
+            const commentText = document.getElementById('taskCommentText').value.trim();
+            
+            if (!commentText) {
+                await showAlert('Required', 'Please enter a comment');
+                return;
+            }
+            
+            fetch('/api/add_device_comment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sm_ip: smIp,
+                    comment: commentText
+                })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    await showAlert('Success', 'Comment added successfully!');
+                    document.getElementById('taskCommentText').value = '';
+                    loadTaskComments(smIp);
+                } else {
+                    await showAlert('Error', data.error || 'Failed to add comment');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to add comment: ' + error.message);
+            });
+        }
+        
+        function showDeviceDetailsModal(device) {
+            const statusClass = device.status.toLowerCase().includes('down') ? 'status-down' : 'status-degraded';
+            const statusBadge = `<span class="status-badge ${statusClass}" style="display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px;">${device.status}</span>`;
+            
+            // Check if device is assigned to someone else
+            const isAssignedToOther = device.assigned_to && device.assigned_to !== '';
+            
+            // Build assignment info
+            let assignmentInfo = '';
+            if (isAssignedToOther) {
+                assignmentInfo = `
+                    <div style="background: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #ff9800;">
+                        <strong>� Assignment Status:</strong> This device is currently assigned to <strong>${device.assigned_to}</strong>
+                    </div>
+                `;
+            }
+            
+            // Build action buttons
+            let actionButtons = '';
+            if (isAssignedToOther) {
+                // Show reassign button for admin, close button for all
+                actionButtons = `
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        {% if user.role == 'admin' %}
+                        <button onclick="showDeviceReassignModal('${device.sm_ip}', '${device.assigned_to}')" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">🔄 Reassign</button>
+                        {% endif %}
+                        <button onclick="closeDeviceDetailsModal()" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #757575; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✖️ Close</button>
+                    </div>
+                `;
+            } else {
+                // Show assign button if not assigned
+                actionButtons = `
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="action-btn btn-assign" onclick="assignDeviceToMe(${JSON.stringify(device).replace(/"/g, '&quot;')})" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #1a73e8; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✋ Assign to Me</button>
+                        <button onclick="closeDeviceDetailsModal()" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #757575; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✖️ Close</button>
+                    </div>
+                `;
+            }
+            
+            const content = `
+                <div style="margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 10px 0; color: #333;">${device.device_name}</h4>
+                    ${statusBadge}
+                </div>
+                
+                ${assignmentInfo}
+                
+                <div style="background: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="margin-bottom: 10px;"><strong>📍 SM IP:</strong> ${device.sm_ip}</div>
+                    <div style="margin-bottom: 10px;"><strong>📱 Device Name:</strong> ${device.device_name}</div>
+                    <div style="margin-bottom: 10px;"><strong>📍 Location:</strong> ${device.location}</div>
+                    <div style="margin-bottom: 10px;"><strong>🔴 Status:</strong> ${device.status}</div>
+                    <div style="margin-bottom: 10px;"><strong>⏱️ Latency:</strong> ${device.latency}</div>
+                </div>
+                
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: #1976d2;">Access Point Information</h4>
+                    <div style="margin-bottom: 10px;"><strong>📡 AP Name:</strong> ${device.ap_name}</div>
+                    <div style="margin-bottom: 10px;"><strong>🌐 AP IP:</strong> ${device.ap_ip}</div>
+                    <div style="margin-bottom: 10px;"><strong>🆔 CID:</strong> ${device.cid}</div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <strong>🔧 Quick Actions:</strong>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="ping-btn" onclick="forcePingDevice('${device.sm_ip}', '${device.sm_ip}', 'sm')" style="flex: 1; padding: 10px; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">🔧 Force Ping SM</button>
+                        <button class="ping-btn ping-ap" onclick="forcePingDevice('${device.sm_ip}', '${device.ap_ip}', 'ap')" style="flex: 1; padding: 10px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">📡 Force Ping AP</button>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <strong>💬 Comments & Notes:</strong>
+                    <div id="deviceCommentsList" style="max-height: 200px; overflow-y: auto; margin-top: 10px; margin-bottom: 10px;">
+                        <div style="text-align: center; padding: 20px; color: #999;">Loading comments...</div>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <textarea id="deviceCommentText" placeholder="Add a comment or note..." style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 13px; resize: vertical; min-height: 60px; font-family: 'Segoe UI', sans-serif;"></textarea>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button onclick="addDeviceComment('${device.sm_ip}')" style="flex: 1; padding: 10px; background: #2196f3; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">💬 Add Comment</button>
+                    </div>
+                </div>
+                
+                ${actionButtons}
+            `;
+            
+            document.getElementById('deviceDetailsContent').innerHTML = content;
+            document.getElementById('deviceDetailsModal').style.display = 'block';
+            
+            // Load comments for this device
+            loadDeviceComments(device.sm_ip);
+        }
+        
+        function closeDeviceDetailsModal() {
+            document.getElementById('deviceDetailsModal').style.display = 'none';
+        }
+        
+        function loadDeviceComments(smIp) {
+            fetch(`/api/device_comments/${smIp}`)
+                .then(response => response.json())
+                .then(data => {
+                    const commentsList = document.getElementById('deviceCommentsList');
+                    if (data.success && data.comments && data.comments.length > 0) {
+                        commentsList.innerHTML = '';
+                        data.comments.forEach(comment => {
+                            const commentDiv = document.createElement('div');
+                            commentDiv.style.cssText = 'background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #1a73e8;';
+                            commentDiv.innerHTML = `
+                                <div style="font-size: 11px; color: #666; margin-bottom: 5px;">
+                                    <strong>${comment.username}</strong> • ${new Date(comment.timestamp).toLocaleString()}
+                                </div>
+                                <div style="font-size: 13px; color: #333;">${comment.comment}</div>
+                            `;
+                            commentsList.appendChild(commentDiv);
+                        });
+                        // Auto-scroll to bottom to show latest comment
+                        commentsList.scrollTop = commentsList.scrollHeight;
+                    } else {
+                        commentsList.innerHTML = '<div style="text-align: center; padding: 20px; color: #999;">No comments yet</div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading comments:', error);
+                    document.getElementById('deviceCommentsList').innerHTML = '<div style="text-align: center; padding: 20px; color: #f44336;">Error loading comments</div>';
+                });
+        }
+        
+        async function addDeviceComment(smIp) {
+            const commentText = document.getElementById('deviceCommentText').value.trim();
+            
+            if (!commentText) {
+                await showAlert('Required', 'Please enter a comment');
+                return;
+            }
+            
+            fetch('/api/add_device_comment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sm_ip: smIp,
+                    comment: commentText
+                })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    await showAlert('Success', 'Comment added successfully!');
+                    document.getElementById('deviceCommentText').value = '';
+                    loadDeviceComments(smIp);
+                } else {
+                    await showAlert('Error', data.error || 'Failed to add comment');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to add comment: ' + error.message);
+            });
+        }
+        
+        async function forcePingDevice(smIp, ip, type) {
+            if (!ip) {
+                await showAlert('Error', 'IP address not available');
+                return;
+            }
+            
+            const typeLabel = type === 'sm' ? 'SM' : 'AP';
+            const confirmed = await showConfirm(`Force Ping ${typeLabel}`, `Ping ${typeLabel} IP: ${ip}?`);
+            if (!confirmed) return;
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, type: type })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    // Format status with color
+                    const statusColor = data.status === 'Reachable' ? '#4caf50' : '#f44336';
+                    const statusText = `<strong style="color: ${statusColor};">${data.status}</strong>`;
+                    const message = `${typeLabel} ${ip}: ${statusText}<br>Latency: ${data.latency || 'N/A'}`;
+                    await showAlert('Ping Result', message);
+                    
+                    // Add comment to device
+                    const commentText = `Manual ${typeLabel} ping: ${data.status}${data.latency ? ` (${data.latency})` : ''}`;
+                    await fetch('/api/add_device_comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sm_ip: smIp,
+                            comment: commentText,
+                            type: 'ping_result'
+                        })
+                    });
+                    
+                    // Reload comments if we're viewing this device
+                    if (typeof loadDeviceComments === 'function') {
+                        loadDeviceComments(smIp);
+                    }
+                } else {
+                    await showAlert('Error', data.error || 'Ping failed');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to ping: ' + error.message);
+            });
+        }
+        
+        async function assignDeviceToMe(device) {
+            const confirmed = await showConfirm('Assign Task', `Assign ${device.sm_ip} to yourself?`);
+            if (!confirmed) return;
+            
+            // Create detailed description
+            const description = `Device Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📍 SM IP: ${device.sm_ip}
+📱 Device Name: ${device.device_name}
+📍 Location: ${device.location}
+🔴 Status: ${device.status}
+⏱️ Latency: ${device.latency}
+
+Access Point Information:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📡 AP Name: ${device.ap_name}
+🌐 AP IP: ${device.ap_ip}
+🆔 CID: ${device.cid}
+
+Task Notes:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Device assigned for investigation and resolution.`;
+            
+            fetch('/api/create_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sm_ip: device.sm_ip,
+                    title: `Fix ${device.device_name} - ${device.sm_ip}`,
+                    description: description,
+                    priority: 'high',
+                    assign_to_self: true
+                })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    await showAlert('Success', 'Task assigned successfully!');
+                    closeDeviceDetailsModal();
+                    loadStatistics();
+                    loadAvailableDevices();
+                    loadMyTasks();
+                    switchTab('my-tasks');
+                } else {
+                    await showAlert('Error', data.error || 'Failed to assign task');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to assign task: ' + error.message);
+            });
+        }
+        
+        async function forcePingFromTask(smIp, ip, type) {
+            if (!ip) {
+                await showAlert('Error', 'IP address not available');
+                return;
+            }
+            
+            const typeLabel = type === 'sm' ? 'SM' : 'AP';
+            const confirmed = await showConfirm(`Force Ping ${typeLabel}`, `Ping ${typeLabel} IP: ${ip}?`);
+            if (!confirmed) return;
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, type: type })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    // Format status with color
+                    const statusColor = data.status === 'Reachable' ? '#4caf50' : '#f44336';
+                    const statusText = `<strong style="color: ${statusColor};">${data.status}</strong>`;
+                    const message = `${typeLabel} ${ip}: ${statusText}<br>Latency: ${data.latency || 'N/A'}`;
+                    await showAlert('Ping Result', message);
+                    
+                    // Add comment to device
+                    const commentText = `Manual ${typeLabel} ping: ${data.status}${data.latency ? ` (${data.latency})` : ''}`;
+                    await fetch('/api/add_device_comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            sm_ip: smIp,
+                            comment: commentText,
+                            type: 'ping_result'
+                        })
+                    });
+                    
+                    // Reload comments if we're viewing this task
+                    if (typeof loadTaskComments === 'function') {
+                        loadTaskComments(smIp);
+                    }
+                } else {
+                    await showAlert('Error', data.error || 'Ping failed');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to ping: ' + error.message);
+            });
+        }
+        
+        // Reassign Task Functions (Admin Only)
+        let currentReassignTaskId = null;
+        
+        async function showDeviceReassignModal(smIp, currentAssignee) {
+            // Find the task for this device by querying all tasks with this sm_ip
+            try {
+                const response = await fetch(`/api/device_task_history/${smIp}`);
+                const data = await response.json();
+                
+                console.log('Task history response:', data);
+                if (data.success && data.tasks && data.tasks.length > 0) {
+                    // Find the active task assigned to the current assignee
+                    let task = data.tasks.find(t => t.assigned_to === currentAssignee && t.status !== 'closed');
+                    
+                    // If no task found for current assignee, try to find any open task
+                    if (!task) {
+                        task = data.tasks.find(t => t.status !== 'closed');
+                    }
+                    
+                    if (task) {
+                        console.log('Found task:', task);
+                        showReassignModal(task.id, task.assigned_to || currentAssignee);
+                    } else {
+                        await showAlert('Error', 'No active task found for this device. The device may be assigned but no task was created.');
+                    }
+                } else {
+                    await showAlert('Error', 'No tasks found for this device. The device may be assigned but no task was created.');
+                }
+            } catch (error) {
+                console.error('Error finding task:', error);
+                await showAlert('Error', 'Failed to find task for this device');
+            }
+        }
+        
+        async function showReassignModal(taskId, currentAssignee) {
+            currentReassignTaskId = taskId;
+            
+            // Load users for dropdown
+            fetch('/api/users')
+                .then(response => response.json())
+                .then(data => {
+                    const select = document.getElementById('reassignUserSelect');
+                    select.innerHTML = '<option value="">Select a user...</option>';
+                    
+                    if (data.success && data.users) {
+                        data.users.forEach(user => {
+                            const option = document.createElement('option');
+                            option.value = user.username;
+                            option.textContent = `${user.username} (${user.role})`;
+                            if (user.username === currentAssignee) {
+                                option.textContent += ' - Current';
+                            }
+                            select.appendChild(option);
+                        });
+                    }
+                    
+                    document.getElementById('reassignTaskModal').style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error loading users:', error);
+                    showAlert('Error', 'Failed to load users');
+                });
+        }
+        
+        function closeReassignModal() {
+            document.getElementById('reassignTaskModal').style.display = 'none';
+            currentReassignTaskId = null;
+        }
+        
+        async function submitReassign() {
+            const newAssignee = document.getElementById('reassignUserSelect').value;
+            
+            if (!newAssignee) {
+                await showAlert('Required', 'Please select a user');
+                return;
+            }
+            
+            fetch(`/api/reassign_task/${currentReassignTaskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assigned_to: newAssignee })
+            })
+            .then(response => response.json())
+            .then(async data => {
+                if (data.success) {
+                    await showAlert('Success', data.message);
+                    closeReassignModal();
+                    closeTaskDetailsModal();
+                    closeDeviceDetailsModal();
+                    loadStatistics();
+                    loadMyTasks();
+                    loadAvailableDevices();
+                } else {
+                    await showAlert('Error', data.error || 'Failed to reassign task');
+                }
+            })
+            .catch(async error => {
+                await showAlert('Error', 'Failed to reassign task: ' + error.message);
+            });
+        }
+    </script>
+</body>
+</html>

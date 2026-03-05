@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Wireless Monitoring</title>
-    <!-- Cache buster: 20260105143900 -->
+    <!-- Cache buster: 20260304170300 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -16,6 +16,216 @@
         body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; margin: 0; padding: 20px; }
         h1 { color: #1a73e8; text-align: center; font-size: 36px; margin-bottom: 10px; }
         h2 { color: #555; text-align: center; font-size: 20px; margin-top: 0; margin-bottom: 20px; }
+        
+        /* Remove old user header and welcome bar styles */
+        
+        /* Main menu bar - CENTERED below search */
+        .main-menu-bar {
+            background: transparent;
+            padding: 15px 0;
+            margin-top: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .menu-left {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .menu-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .menu-btn {
+            padding: 8px 16px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .menu-btn:hover {
+            background: #1557b0;
+            transform: translateY(-2px);
+        }
+        
+        .menu-btn.btn-clear {
+            background: #1a73e8;
+        }
+        
+        .menu-btn.btn-clear:hover {
+            background: #1557b0;
+        }
+        
+        /* Welcome message BELOW menu bar */
+        .welcome-message-bar {
+            background: transparent;
+            padding: 8px 20px;
+            text-align: center;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        
+        /* Notification Bell in menu */
+        .notification-bell {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #1a73e8;
+            border: none;
+            transition: all 0.3s ease;
+            color: white;
+        }
+        
+        .notification-bell:hover {
+            background: #1557b0;
+            transform: scale(1.1);
+        }
+        
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff3d00;
+            color: white;
+            border-radius: 50%;
+            padding: 3px 7px;
+            font-size: 11px;
+            font-weight: bold;
+            min-width: 20px;
+            text-align: center;
+            border: 2px solid white;
+            box-shadow: 0 2px 8px rgba(255, 61, 0, 0.5);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .notification-dropdown {
+            display: none;
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: white;
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            min-width: 380px;
+            max-width: 400px;
+            max-height: 500px;
+            overflow: hidden;
+            z-index: 999;
+        }
+        
+        .notification-dropdown.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .notification-header {
+            padding: 18px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .notification-list-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .notification-item {
+            padding: 15px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+        }
+        
+        .notification-item:hover {
+            background: linear-gradient(90deg, #f5f7fa 0%, #e8f0fe 100%);
+            transform: translateX(5px);
+        }
+        
+        .notification-item-ip {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 15px;
+            margin-bottom: 5px;
+        }
+        
+        .notification-item-name {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        
+        .notification-item-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .notification-empty {
+            padding: 40px 20px;
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+        }
+        
+        .notification-empty-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+        
         .container { max-width: 1600px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); padding: 20px; position: relative; }
         .summary { padding: 10px; background: #f9f9f9; border-radius: 5px; text-align: center; font-size: 16px; margin: 10px 0; width: 100%; display: flex; justify-content: center; flex-wrap: wrap; border: 2px solid #e0e0e0; }
         .summary span { margin: 0 15px; white-space: nowrap; }
@@ -25,6 +235,556 @@
         .status-degraded { color: #ff9800; font-weight: bold; }
         .status-down { color: #FF0000; font-weight: bold; }
         .status-unknown { color: #777; font-weight: bold; }
+        
+        /* Mobile Device Details */
+        .device-details-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .device-details-content {
+            position: relative;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-height: calc(100vh - 40px);
+            box-sizing: border-box;
+        }
+        
+        .device-details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 15px;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+        
+        .device-details-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1a73e8;
+            margin: 0;
+        }
+        
+        .device-details-close {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .device-info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        
+        .device-info-item {
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 6px;
+            border-left: 3px solid #1a73e8;
+        }
+        
+        .device-info-label {
+            font-weight: bold;
+            color: #555;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        
+        .device-info-value {
+            font-size: 14px;
+            color: #333;
+            word-break: break-all;
+        }
+        
+        .ack-section {
+            margin: 25px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+            border-radius: 8px;
+            border-left: 4px solid #1a73e8;
+        }
+        
+        .ack-section h4 {
+            margin: 0 0 15px 0;
+            color: #1a73e8;
+            font-size: 16px;
+        }
+        
+        .ack-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .ack-badge {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .ack-badge.unassigned {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+        
+        .ack-badge.ack {
+            background: #fff3e0;
+            color: #ef6c00;
+            border: 1px solid #ff9800;
+        }
+        
+        .ack-badge.assigned {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+        
+        .ack-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .ack-btn {
+            padding: 12px 8px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            transition: all 0.2s;
+        }
+        
+        .ack-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .ack-btn.acknowledge {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .ack-btn.acknowledge:hover {
+            background: #f57c00;
+        }
+        
+        .ack-btn.assign {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .ack-btn.assign:hover {
+            background: #388e3c;
+        }
+        
+        .ack-btn.assign-other {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .ack-btn.assign-other:hover {
+            background: #138496;
+        }
+        
+        .ack-btn.force-ping {
+            background: #fd7e14;
+            color: white;
+        }
+        
+        .ack-btn.force-ping:hover {
+            background: #e8650e;
+        }
+        
+        .ack-btn.unassign {
+            background: #f44336;
+            color: white;
+        }
+        
+        .ack-btn.unassign:hover {
+            background: #d32f2f;
+        }
+        
+        .comments-section {
+            margin: 25px 0;
+        }
+        
+        .comments-section h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .comment-form {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        
+        .comment-form input,
+        .comment-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        
+        .comment-input {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+        
+        .comment-submit {
+            margin-top: 10px;
+            padding: 12px 20px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            width: 100%;
+        }
+        
+        .comment-submit:hover {
+            background: #1557b0;
+        }
+        
+        .comments-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .comment-item {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 14px;
+            background: white;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid #e0e0e0;
+        }
+        
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .comment-text {
+            color: #333;
+            line-height: 1.4;
+        }
+        
+        .history-section {
+            margin-top: 25px;
+        }
+        
+        .history-section h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .history-list {
+            max-height: 250px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        
+        .history-item {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 10px;
+            padding: 8px 0;
+            font-size: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            align-items: center;
+        }
+        
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        
+        .history-timestamp {
+            color: #666;
+        }
+        
+        .history-status {
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .history-latency {
+            color: #333;
+            font-weight: bold;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            /* Modal adjustments for mobile */
+            .device-details-content {
+                margin: 10px;
+                padding: 15px;
+                border-radius: 12px;
+                min-height: calc(100vh - 20px);
+            }
+            
+            .device-details-header {
+                padding-bottom: 12px;
+                margin-bottom: 15px;
+            }
+            
+            .device-details-title {
+                font-size: 16px;
+            }
+            
+            .device-details-close {
+                width: 40px;
+                height: 40px;
+                font-size: 22px;
+            }
+            
+            .device-info-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            
+            .device-info-item {
+                padding: 10px;
+            }
+            
+            .ack-section {
+                padding: 15px;
+                margin: 20px 0;
+            }
+            
+            .ack-buttons {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            
+            .ack-btn {
+                padding: 15px;
+                font-size: 14px;
+                min-height: 44px; /* Better touch target */
+            }
+            
+            .comment-form {
+                padding: 12px;
+            }
+            
+            .comment-form input,
+            .comment-input {
+                padding: 15px;
+                font-size: 16px; /* Prevents zoom on iOS */
+                min-height: 44px; /* Better touch target */
+            }
+            
+            .comment-submit {
+                padding: 15px;
+                font-size: 16px;
+                min-height: 44px; /* Better touch target */
+            }
+            
+            .history-item {
+                grid-template-columns: 1fr;
+                gap: 5px;
+                padding: 10px 0;
+            }
+            
+            .history-timestamp,
+            .history-status,
+            .history-latency {
+                font-size: 13px;
+            }
+            
+            /* Table improvements for mobile */
+            table {
+                font-size: 11px;
+            }
+            
+            th, td {
+                padding: 6px 3px;
+            }
+            
+            /* Mobile table row styling */
+            #mainTable tbody tr {
+                transition: background-color 0.2s;
+                border-bottom: 2px solid #f0f0f0;
+                min-height: 44px; /* Better touch target */
+            }
+            
+            #mainTable tbody tr:hover,
+            #mainTable tbody tr:active {
+                background-color: #e3f2fd !important;
+                transform: scale(1.01);
+            }
+            
+            /* Add visual indicator for clickable rows on mobile */
+            #mainTable tbody tr[title="Tap for details"] {
+                position: relative;
+            }
+            
+            #mainTable tbody tr[title="Tap for details"]::after {
+                content: "👆 Tap";
+                position: absolute;
+                right: 5px;
+                top: 50%;
+                transform: translateY(-50%);
+                background: rgba(26, 115, 232, 0.1);
+                color: #1a73e8;
+                padding: 2px 6px;
+                border-radius: 10px;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            
+            /* Improve touch targets */
+            .clickable {
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+            }
+            
+            /* Status indicators more visible on mobile */
+            .status-reachable { 
+                background: rgba(76, 175, 80, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            .status-degraded { 
+                background: rgba(255, 152, 0, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            .status-down { 
+                background: rgba(244, 67, 54, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            .status-unknown { 
+                background: rgba(119, 119, 119, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            
+            /* Ensure modal is always on top */
+            .device-details-modal {
+                z-index: 9999;
+            }
+        }
+        
+        /* Small mobile devices */
+        @media (max-width: 480px) {
+            .device-details-content {
+                margin: 5px;
+                padding: 12px;
+            }
+            
+            .device-info-item {
+                padding: 8px;
+            }
+            
+            .device-info-label {
+                font-size: 11px;
+            }
+            
+            .device-info-value {
+                font-size: 13px;
+            }
+            
+            .ack-section h4,
+            .comments-section h4,
+            .history-section h4 {
+                font-size: 14px;
+            }
+            
+            table {
+                font-size: 10px;
+            }
+            
+            th, td {
+                padding: 4px 2px;
+            }
+        }
+        
+        /* Desktop - add double-click functionality */
+        @media (min-width: 769px) {
+            .device-details-content {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                max-width: 600px;
+                max-height: 80vh;
+                margin: 0;
+                min-height: auto;
+                overflow-y: auto;
+            }
+            
+            #mainTable tbody tr {
+                cursor: pointer;
+            }
+            
+            #mainTable tbody tr:hover {
+                background-color: #f9f9f9;
+            }
+            
+            .ack-buttons {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            
+            .device-info-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }
         th { background: #1a73e8; color: white; font-weight: bold; cursor: pointer; position: sticky; top: 0; z-index: 1; }
@@ -32,22 +792,187 @@
         .timestamp { text-align: center; font-style: italic; color: #777; margin-bottom: 5px; }
         .update-time { text-align: center; font-style: italic; color: #555; margin-bottom: 15px; }
         .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #1a73e8; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; margin: 10px auto; display: block; }
-        .search-container { margin-bottom: 15px; text-align: center; }
-        .search-container input { padding: 8px; width: 300px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        .search-container button { padding: 8px 16px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-left: 10px; }
-        .search-container button:hover { background: #1557b0; }
+        
+        /* Centered Search Container */
+        .search-container { 
+            margin-bottom: 20px; 
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .search-input-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+        }
+        
+        .search-container input { 
+            padding: 12px 20px; 
+            width: 100%;
+            max-width: 600px;
+            border: 2px solid #e0e0e0; 
+            border-radius: 25px; 
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        
+        .search-container input:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+        }
+        
+        /* Button Row */
+        .button-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .search-container button { 
+            padding: 10px 20px; 
+            background: #1a73e8; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .search-container button:hover { 
+            background: #1557b0;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .search-container a {
+            padding: 10px 20px;
+            background: #1a73e8;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+        
+        .search-container a:hover {
+            background: #1557b0;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn-my-tasks {
+            background: #ff9800 !important;
+        }
+        
+        .btn-my-tasks:hover {
+            background: #f57c00 !important;
+        }
+        
+        .btn-admin {
+            background: #9c27b0 !important;
+        }
+        
+        .btn-admin:hover {
+            background: #7b1fa2 !important;
+        }
+        
+        .btn-mobile {
+            background: #4caf50 !important;
+        }
+        
+        .btn-mobile:hover {
+            background: #388e3c !important;
+        }
+        
+        .btn-sla {
+            background: #ff5722 !important;
+        }
+        
+        .btn-sla:hover {
+            background: #e64a19 !important;
+        }
         .clear-filter-button { background: #d32f2f; }
         .clear-filter-button:hover { background: #b71c1c; }
+        
+        /* Responsive adjustments for centered layout */
+        @media (max-width: 768px) {
+            .main-menu-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .menu-left,
+            .menu-right {
+                flex-direction: column;
+                width: 100%;
+            }
+            
+            .menu-btn {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .notification-dropdown {
+                top: auto;
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+                min-width: auto;
+                max-height: 60vh;
+            }
+            
+            .search-input-wrapper {
+                flex-direction: column;
+            }
+            
+            .search-container input {
+                max-width: 100%;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .main-menu-bar {
+                padding: 10px;
+            }
+            
+            .menu-btn {
+                padding: 10px;
+                font-size: 12px;
+            }
+            
+            .notification-bell {
+                width: 36px;
+                height: 36px;
+                font-size: 16px;
+            }
+            
+            .welcome-message-bar {
+                font-size: 11px;
+            }
+        }
         .summary-row { display: flex; justify-content: space-between; gap: 10px; margin: 10px 0; width: 100%; flex-wrap: nowrap; align-items: stretch; }
         .summary-row > div { flex: 1 1 50%; display: flex; flex-direction: column; }
         .full-width { width: 100%; margin: 10px 0; }
         .pop-summary, .alert-log, .log-viewer, .downtime-analysis { background: #f9f9f9; padding: 12px; border-radius: 5px; min-height: 200px; max-height: 600px; overflow-y: auto; margin: 5px; box-sizing: border-box; border: 1px solid #e0e0e0; }
         .pop-summary.hidden, .alert-log.hidden, .log-viewer.hidden, .downtime-analysis.hidden { display: none; }
         .pop-summary h3, .alert-log h3, .log-viewer h3, .downtime-analysis h3 { font-size: 18px; margin: 0 0 8px; }
-        .pop-summary table { position: relative; top: 0; font-size: 14px; width: 100%; }
+        .pop-summary table { position: relative; top: 0; font-size: 14px; width: 100%; min-height: 100px; }
         .pop-summary th, .pop-summary td { padding: 6px; text-align: center; }
         .pop-summary td.clickable { cursor: pointer; color: #1a73e8; text-decoration: underline; }
         .pop-summary td.clickable:hover { color: #1557b0; }
+        .pop-summary tbody { min-height: 50px; }
         .alert-log-container, .log-viewer-container, .downtime-analysis-container { display: block; }
         .alert-log-item, .log-viewer-item { padding: 8px 0; border-bottom: 1px solid #e0e0e0; font-size: 14px; opacity: 0; animation: fadeIn 0.5s forwards; }
         .alert-new { animation: blink 0.5s 3; background-color: #ffd700; }
@@ -102,10 +1027,24 @@
         .pop-summary td:nth-child(2) { color: #006400; }
         .pop-summary td:nth-child(4) { color: #FF0000; }
         .status-down-highlight { font-size: 18px; }
-        .non-clickable { cursor: default; color: inherit; text-decoration: none; pointer-events: none; }
+        .non-clickable { cursor: default; color: inherit; text-decoration: none; }
+        .actions-cell { pointer-events: auto !important; }
     </style>
 </head>
 <body>
+    <!-- Notification Dropdown -->
+    <div class="notification-dropdown" id="notificationDropdown">
+        <div class="notification-header">
+            📋 My Assigned Tasks
+        </div>
+        <div class="notification-list-container" id="notificationList">
+            <div class="notification-empty">
+                <div class="notification-empty-icon">📭</div>
+                Loading...
+            </div>
+        </div>
+    </div>
+    
     <div class="container">
         <h1>WorldLink Communications Ltd.</h1>
         <h2>Wireless Monitoring Dashboard</h2>
@@ -113,11 +1052,38 @@
         <div class="timestamp" id="timestamp">Last updated: --</div>
         <div class="update-time" id="updateTime">Last status update took: --</div>
         <div class="spinner" id="spinner"></div>
+        
+        <!-- Centered Search -->
         <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search by SM IP, Device Name, Status, or Location..." onkeyup="filterTable()">
-            <button class="refresh-button" onclick="refreshNow()">Refresh Now</button>
-            <button class="refresh-button clear-filter-button" onclick="clearFilter()">Clear Filter</button>
-            <a href="/admin/login" class="refresh-button" style="margin-left: 10px;">Admin Panel</a>
+            <div class="search-input-wrapper">
+                <input type="text" id="searchInput" placeholder="🔍 Search by SM IP, Device Name, Status, or Location..." onkeyup="filterTable()">
+            </div>
+        </div>
+        
+        <!-- Main Menu Bar - BELOW SEARCH, ALL CENTERED -->
+        <div class="main-menu-bar">
+            <button class="menu-btn" onclick="refreshNow()">Refresh Now</button>
+            <button class="menu-btn btn-clear" onclick="clearFilter()">Clear Filter</button>
+            <a href="/my_tasks" class="menu-btn">📋 My Tasks</a>
+            {% if user.role == 'admin' %}
+            <a href="{{ url_for('admin_dashboard') }}" class="menu-btn">🔒 Admin Panel</a>
+            {% endif %}
+            <a href="/mobile" class="menu-btn">📱 Mobile View</a>
+            <a href="/sla" class="menu-btn">📊 SLA Monitor</a>
+            <div class="notification-bell" onclick="toggleNotifications()" title="My Assigned Tasks">
+                🔔
+                <span class="notification-badge" id="notificationBadge" style="display: none;">0</span>
+            </div>
+            <a href="{{ url_for('profile') }}" class="menu-btn">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: transparent; border: 2px solid white; color: white; font-weight: bold; font-size: 14px; margin-right: 5px;">{{ user.username[0]|upper }}</span>
+                Profile
+            </a>
+            <a href="{{ url_for('logout') }}" class="menu-btn">🚪 Logout</a>
+        </div>
+        
+        <!-- Welcome Message Below Menu Bar -->
+        <div class="welcome-message-bar">
+            Welcome back <strong style="color: #4caf50;">{{ user.username }}</strong> at <span style="color: #4caf50;">{{ user.last_login or 'first login' }}</span>!
         </div>
         <div class="summary" id="summary">
             <span>Total Entries: <span id="totalCount" class="clickable" onclick="filterByStatus('All')">0</span></span>
@@ -178,65 +1144,6 @@
                 <div id="logViewer"></div>
             </div>
         </div>
-        <div class="full-width">
-            <button class="toggle-button" id="toggleDowntimeAnalysis">Show Location Downtime Analysis</button>
-            <div class="downtime-analysis hidden" id="downtimeAnalysisContainer">
-                <h3>Location Downtime Analysis</h3>
-                <div class="downtime-controls">
-                    <input type="date" id="downtimeStartDate">
-                    <input type="date" id="downtimeEndDate">
-                    <button class="refresh-button" onclick="fetchDowntimeData()">Apply Filter</button>
-                    <button class="export-log-button" onclick="exportDowntimeReport()">Export XLSX</button>
-                    <button class="export-pdf-button" onclick="exportDowntimeChart()">Export Chart PDF</button>
-                </div>
-                <div class="top-worst-ips">
-                    <h4>Top 10 Best IPs (Lowest Average Downtime)</h4>
-                    <table id="bestIpsTable">
-                        <thead>
-                            <tr>
-                                <th>SM IP</th>
-                                <th>Device Name</th>
-                                <th>Location</th>
-                                <th>Average Downtime</th>
-                                <th>Downtime Events</th>
-                                <th>Total Downtime Duration</th>
-                                <th>Uptime</th>
-                            </tr>
-                        </thead>
-                        <tbody id="bestIpsTableBody"></tbody>
-                    </table>
-                    <h4>Top 10 Worst IPs (Highest Average Downtime)</h4>
-                    <table id="worstIpsTable">
-                        <thead>
-                            <tr>
-                                <th>SM IP</th>
-                                <th>Device Name</th>
-                                <th>Location</th>
-                                <th>Average Downtime</th>
-                                <th>Downtime Events</th>
-                                <th>Total Downtime Duration</th>
-                                <th>Uptime</th>
-                            </tr>
-                        </thead>
-                        <tbody id="worstIpsTableBody"></tbody>
-                    </table>
-                </div>
-                <table id="downtimeTable">
-                    <thead>
-                        <tr>
-                            <th onclick="sortDowntimeTable('location')">Location</th>
-                            <th onclick="sortDowntimeTable('total_downtime')">Total Downtime</th>
-                            <th onclick="sortDowntimeTable('avg_downtime')">Avg Downtime</th>
-                            <th onclick="sortDowntimeTable('down_ip_count')">Down IPs</th>
-                            <th onclick="sortDowntimeTable('last_downtime')">Last Downtime</th>
-                            <th onclick="sortDowntimeTable('uptime')">Uptime Since</th>
-                        </tr>
-                    </thead>
-                    <tbody id="downtimeTableBody"></tbody>
-                </table>
-                <canvas id="downtimeChart"></canvas>
-            </div>
-        </div>
         <table id="mainTable">
             <thead>
                 <tr>
@@ -249,11 +1156,132 @@
                     <th onclick="sortTable(6)">Status</th>
                     <th onclick="sortTable(7)">Latency</th>
                     <th onclick="sortTable(8)">Downtime Since</th>
+                    <th id="actionsHeader">Actions</th>
                 </tr>
             </thead>
             <tbody id="pingTable"></tbody>
         </table>
     </div>
+
+    <!-- Device Details Modal -->
+    <div id="deviceDetailsModal" class="device-details-modal">
+        <div class="device-details-content">
+            <div class="device-details-header">
+                <h3 id="deviceDetailsTitle" class="device-details-title">Device Details</h3>
+                <button class="device-details-close" onclick="closeDeviceDetails()" aria-label="Close">&times;</button>
+            </div>
+            
+            <div class="device-info-grid" id="deviceInfoGrid">
+                <!-- Device info will be populated here -->
+            </div>
+            
+            <div class="ack-section" id="ackSection">
+                <h4>Assignment Status</h4>
+                <div class="ack-status">
+                    <span>Current Status:</span>
+                    <span id="ackBadge" class="ack-badge unassigned">Unassigned</span>
+                </div>
+                <div id="ackInfo" style="display: none;">
+                    <small id="ackDetails"></small>
+                </div>
+                <div class="ack-buttons">
+                    <button class="ack-btn acknowledge" onclick="acknowledgeDevice('ack')">
+                        Acknowledge
+                    </button>
+                    <button class="ack-btn assign" onclick="acknowledgeDevice('assigned')">
+                        Assign to Me
+                    </button>
+                    {% if user.role == 'admin' %}
+                    <button class="ack-btn assign-other" onclick="showAssignModal()">
+                        Assign to User
+                    </button>
+                    {% endif %}
+                    <button class="ack-btn unassign" onclick="acknowledgeDevice('unassigned')">
+                        Unassign
+                    </button>
+                    <button class="ack-btn force-ping" onclick="forcePing()">
+                        Force Ping SM
+                    </button>
+                    <button class="ack-btn force-ping" onclick="forcePingAP()" style="background: #17a2b8;">
+                        Force Ping AP
+                    </button>
+                </div>
+            </div>
+            
+            <div class="comments-section" id="commentsSection">
+                <h4>Comments & Notes</h4>
+                <div class="comment-form">
+                    <textarea id="commentInput" class="comment-input" placeholder="Add a comment or note about this device..." maxlength="500"></textarea>
+                    <button class="comment-submit" onclick="addComment()">Add Comment</button>
+                </div>
+                <div class="comments-list" id="commentsList">
+                    <!-- Comments will be populated here -->
+                </div>
+            </div>
+            
+            <div class="history-section" id="historySection">
+                <h4>Recent History (Last 24 Hours)</h4>
+                <div class="history-list" id="historyList">
+                    <!-- History will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Assignment Modal (Admin Only) -->
+    {% if user.role == 'admin' %}
+    <div id="assignModal" class="device-details-modal" style="display: none;">
+        <div class="device-details-content">
+            <div class="device-details-header">
+                <h3 class="device-details-title">Assign Device to User</h3>
+                <button class="device-details-close" onclick="closeAssignModal()">&times;</button>
+            </div>
+            
+            <div class="device-info-grid">
+                <div class="device-info-item">
+                    <strong>Device IP:</strong>
+                    <span id="assignDeviceIp">-</span>
+                </div>
+                <div class="device-info-item">
+                    <strong>Device Name:</strong>
+                    <span id="assignDeviceName">-</span>
+                </div>
+                <div class="device-info-item">
+                    <strong>Location:</strong>
+                    <span id="assignDeviceLocation">-</span>
+                </div>
+                <div class="device-info-item">
+                    <strong>Current Status:</strong>
+                    <span id="assignDeviceStatus">-</span>
+                </div>
+            </div>
+            
+            <div class="ack-section">
+                <h4>Assignment Details</h4>
+                <div class="form-group">
+                    <label for="assignToUser">Assign to User:</label>
+                    <select id="assignToUser" required>
+                        <option value="">Select User...</option>
+                        {% for user_item in users %}
+                            {% if user_item.is_active and user_item.role == 'user' %}
+                            <option value="{{ user_item.id }}">{{ user_item.username }} ({{ user_item.email }})</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="assignCommentModal">Assignment Comment:</label>
+                    <textarea id="assignCommentModal" placeholder="Optional comment about the assignment..." rows="3"></textarea>
+                </div>
+                <div class="ack-buttons">
+                    <button class="ack-btn assign" onclick="submitAssignment()">Assign Device</button>
+                    <button class="ack-btn" onclick="closeAssignModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
     <script>
         let timeLeft = 10;
         let fullData = [];
@@ -282,6 +1310,19 @@
             startAlertQueueProcessor();
             socket.emit('refresh_now');
             socket.emit('refresh_alerts');
+            
+            // Check if URL has ?device= parameter to auto-open device details
+            const urlParams = new URLSearchParams(window.location.search);
+            const deviceIp = urlParams.get('device');
+            if (deviceIp) {
+                // Wait a bit for data to load, then open device details
+                setTimeout(() => {
+                    const deviceRow = fullData.find(d => d['SM IP'] === deviceIp);
+                    if (deviceRow) {
+                        showDeviceDetails(deviceRow);
+                    }
+                }, 1000);
+            }
         });
 
         socket.on('update_status', function(data) {
@@ -814,11 +1855,784 @@
             }, ALERT_UPDATE_INTERVAL);
         }
 
+        // Device Details Modal Functions
+        let currentDeviceIp = null;
+
+        function showDeviceDetails(ip) {
+            console.log('showDeviceDetails called with IP:', ip);
+            currentDeviceIp = ip;
+            const modal = document.getElementById('deviceDetailsModal');
+            
+            if (!modal) {
+                console.error('Device details modal not found!');
+                alert('Error: Modal not found');
+                return;
+            }
+            
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Prevent background scroll
+            document.getElementById('deviceDetailsTitle').textContent = `Device Details - ${ip}`;
+            
+            // Show loading state
+            const deviceInfoGrid = document.getElementById('deviceInfoGrid');
+            if (deviceInfoGrid) {
+                deviceInfoGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading device details...</div>';
+            }
+            
+            // Load device details
+            console.log('Fetching device details for IP:', ip);
+            fetch(`/api/device_details/${ip}`)
+                .then(response => {
+                    console.log('Device details response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Device details data received:', data);
+                    if (data.error) {
+                        alert('Error loading device details: ' + data.error);
+                        closeDeviceDetails();
+                        return;
+                    }
+                    
+                    populateDeviceInfo(data.device);
+                    populateAckStatus(data.acknowledgment);
+                    populateComments(data.comments);
+                    populateHistory(data.history);
+                })
+                .catch(error => {
+                    console.error('Error loading device details:', error);
+                    alert('Failed to load device details. Please check your connection.');
+                    closeDeviceDetails();
+                });
+        }
+
+        function closeDeviceDetails() {
+            document.getElementById('deviceDetailsModal').style.display = 'none';
+            document.body.style.overflow = ''; // Restore body scroll
+            currentDeviceIp = null;
+        }
+
+        function showTaskHistory(ip, deviceName) {
+            console.log('showTaskHistory called for IP:', ip, 'Device:', deviceName);
+            const modal = document.getElementById('deviceDetailsModal');
+            
+            if (!modal) {
+                console.error('Device details modal not found!');
+                alert('Error: Modal not found');
+                return;
+            }
+            
+            console.log('Opening modal for task history');
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            document.getElementById('deviceDetailsTitle').textContent = `Task History - ${deviceName} (${ip})`;
+            
+            // Show loading state
+            const deviceInfoGrid = document.getElementById('deviceInfoGrid');
+            if (deviceInfoGrid) {
+                deviceInfoGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading task history...</div>';
+            }
+            
+            // Hide Assignment, Comments, and History sections
+            const ackSection = document.getElementById('ackSection');
+            const commentsSection = document.getElementById('commentsSection');
+            const historySection = document.getElementById('historySection');
+            
+            if (ackSection) ackSection.style.display = 'none';
+            if (commentsSection) commentsSection.style.display = 'none';
+            if (historySection) historySection.style.display = 'none'; // Hide history section
+            
+            console.log('Fetching task history from API...');
+            // Load task history
+            fetch(`/api/device_task_history/${ip}`)
+                .then(response => {
+                    console.log('Task history response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Task history data received:', data);
+                    if (data.error) {
+                        alert('Error loading task history: ' + data.error);
+                        closeDeviceDetails();
+                        return;
+                    }
+                    
+                    displayTaskHistory(data.tasks, data.total_count, ip, deviceName);
+                })
+                .catch(error => {
+                    console.error('Error loading task history:', error);
+                    alert('Failed to load task history: ' + error.message);
+                    closeDeviceDetails();
+                });
+        }
+
+        function displayTaskHistory(tasks, totalCount, ip, deviceName) {
+            const grid = document.getElementById('deviceInfoGrid');
+            
+            let html = `
+                <div style="grid-column: 1 / -1; width: 100%;">
+                    <div style="background: #f5f7fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h3 style="margin: 0 0 15px 0; color: #333;">📋 Task Summary for ${deviceName}</h3>
+                        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; gap: 10px; justify-content: flex-start; align-items: stretch;">
+                            <div style="background: white; padding: 12px 20px; border-radius: 8px; border-left: 4px solid #1a73e8; flex: 1; min-width: 0;">
+                                <div style="font-size: 24px; font-weight: bold; color: #1a73e8; white-space: nowrap;">${totalCount}</div>
+                                <div style="font-size: 12px; color: #666; white-space: nowrap;">Total Tasks</div>
+                            </div>
+                            <div style="background: white; padding: 12px 20px; border-radius: 8px; border-left: 4px solid #4caf50; flex: 1; min-width: 0;">
+                                <div style="font-size: 24px; font-weight: bold; color: #4caf50; white-space: nowrap;">${tasks.filter(t => t.status === 'closed').length}</div>
+                                <div style="font-size: 12px; color: #666; white-space: nowrap;">Closed</div>
+                            </div>
+                            <div style="background: white; padding: 12px 20px; border-radius: 8px; border-left: 4px solid #ff9800; flex: 1; min-width: 0;">
+                                <div style="font-size: 24px; font-weight: bold; color: #ff9800; white-space: nowrap;">${tasks.filter(t => t.status === 'open' || t.status === 'in_progress').length}</div>
+                                <div style="font-size: 12px; color: #666; white-space: nowrap;">Open</div>
+                            </div>
+                        </div>
+                    </div>
+            `;
+            
+            if (tasks.length === 0) {
+                html += '<div style="text-align: center; padding: 40px; color: #999;">No tasks have been created for this device yet.</div>';
+            } else {
+                html += '<div style="background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">';
+                
+                tasks.forEach((task, index) => {
+                    const statusColors = {
+                        'open': '#ff9800',
+                        'in_progress': '#2196f3',
+                        'closed': '#4caf50'
+                    };
+                    const statusColor = statusColors[task.status] || '#999';
+                    const priorityIcons = {
+                        'high': '🔴',
+                        'medium': '🟡',
+                        'low': '🟢'
+                    };
+                    
+                    html += `
+                        <div onclick="showTaskDetails(${task.id})" style="padding: 15px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; justify-content: space-between;" 
+                             onmouseover="this.style.background='#f9f9f9'" 
+                             onmouseout="this.style.background='white'">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                                    <span style="font-weight: bold; color: #1a73e8; font-size: 14px;">${task.task_id || `TASK-${1000 + task.id}`}</span>
+                                    <span style="background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">
+                                        ${task.status.toUpperCase().replace('_', ' ')}
+                                    </span>
+                                    <span style="font-size: 14px;">${priorityIcons[task.priority] || ''}</span>
+                                </div>
+                                <div style="color: #333; font-size: 14px; margin-bottom: 3px;">${task.title}</div>
+                                <div style="color: #666; font-size: 12px;">
+                                    👤 ${task.assigned_to || 'Unassigned'} • 📅 ${new Date(task.created_at).toLocaleDateString()}
+                                </div>
+                            </div>
+                            <div style="color: #999; font-size: 20px;">›</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+            
+            html += '</div>'; // Close the grid-column wrapper
+            
+            grid.innerHTML = html;
+        }
+
+        function showTaskDetails(taskId) {
+            console.log('Loading task details for task ID:', taskId);
+            
+            // Show loading
+            const grid = document.getElementById('deviceInfoGrid');
+            grid.innerHTML = '<div style="text-align: center; padding: 40px;">Loading task details...</div>';
+            
+            // Fetch task details
+            fetch(`/api/task/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error loading task: ' + data.error);
+                        return;
+                    }
+                    
+                    displaySingleTaskDetails(data.task);
+                })
+                .catch(error => {
+                    console.error('Error loading task:', error);
+                    alert('Failed to load task details');
+                });
+        }
+
+        function displaySingleTaskDetails(task) {
+            const grid = document.getElementById('deviceInfoGrid');
+            
+            const statusColors = {
+                'open': '#ff9800',
+                'in_progress': '#2196f3',
+                'closed': '#4caf50'
+            };
+            const statusColor = statusColors[task.status] || '#999';
+            const priorityIcons = {
+                'high': '🔴',
+                'medium': '🟡',
+                'low': '🟢'
+            };
+            
+            let html = `
+                <div style="grid-column: 1 / -1;">
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="showTaskHistory('${task.sm_ip}', 'Device')" style="background: #757575; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                            ← Back to Task List
+                        </button>
+                    </div>
+                    
+                    <div style="background: white; border: 2px solid ${statusColor}; border-radius: 12px; padding: 25px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                            <div>
+                                <div style="font-size: 20px; font-weight: bold; color: #1a73e8; margin-bottom: 5px;">
+                                    ${task.task_id || `TASK-${1000 + task.id}`}
+                                </div>
+                                <div style="font-size: 18px; color: #333;">
+                                    ${priorityIcons[task.priority] || ''} ${task.title}
+                                </div>
+                            </div>
+                            <div style="background: ${statusColor}; color: white; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: bold;">
+                                ${task.status.toUpperCase().replace('_', ' ')}
+                            </div>
+                        </div>
+                        
+                        <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                            <strong style="color: #666; font-size: 13px;">Description:</strong>
+                            <div style="margin-top: 8px; font-size: 14px; color: #333; white-space: pre-wrap; line-height: 1.6;">
+                                ${task.description || 'No description'}
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                            <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Device IP</div>
+                                <div style="font-size: 14px; font-weight: 600; color: #333;">📍 ${task.sm_ip}</div>
+                            </div>
+                            <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Priority</div>
+                                <div style="font-size: 14px; font-weight: 600; color: #333;">${priorityIcons[task.priority]} ${task.priority.toUpperCase()}</div>
+                            </div>
+                            <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Assigned To</div>
+                                <div style="font-size: 14px; font-weight: 600; color: #333;">👤 ${task.assigned_to || 'Unassigned'}</div>
+                            </div>
+                            <div style="background: #f5f7fa; padding: 12px; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #666; margin-bottom: 4px;">Created By</div>
+                                <div style="font-size: 14px; font-weight: 600; color: #333;">✍️ ${task.created_by}</div>
+                            </div>
+                        </div>
+                        
+                        <div style="border-top: 1px solid #e0e0e0; padding-top: 15px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 13px; color: #666;">
+                                <div><strong>📅 Created:</strong> ${new Date(task.created_at).toLocaleString()}</div>
+                                <div><strong>🔄 Updated:</strong> ${new Date(task.updated_at).toLocaleString()}</div>
+                                ${task.closed_at ? `<div><strong>✅ Closed:</strong> ${new Date(task.closed_at).toLocaleString()}</div>` : ''}
+                                ${task.closed_by ? `<div><strong>🔒 Closed By:</strong> ${task.closed_by}</div>` : ''}
+                            </div>
+                        </div>
+                        
+                        ${task.resolution ? `
+                            <div style="margin-top: 20px; padding: 15px; background: #e8f5e8; border-left: 4px solid #4caf50; border-radius: 8px;">
+                                <strong style="color: #2e7d32; font-size: 14px;">✅ Resolution Notes:</strong>
+                                <div style="margin-top: 8px; font-size: 14px; color: #2e7d32; white-space: pre-wrap; line-height: 1.6;">
+                                    ${task.resolution}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            grid.innerHTML = html;
+        }
+
+        function populateDeviceInfo(device) {
+            const grid = document.getElementById('deviceInfoGrid');
+            grid.innerHTML = `
+                <div class="device-info-item">
+                    <div class="device-info-label">AP Name</div>
+                    <div class="device-info-value">${device['AP Name'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">AP IP</div>
+                    <div class="device-info-value">${device['AP IP'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">CID</div>
+                    <div class="device-info-value">${device['CID'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">SM IP</div>
+                    <div class="device-info-value">${device['SM IP'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Device Name</div>
+                    <div class="device-info-value">${device['Device Name'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Location</div>
+                    <div class="device-info-value">${device['Location'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Status</div>
+                    <div class="device-info-value status-${device['Status'].toLowerCase()}">${device['Status'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Latency</div>
+                    <div class="device-info-value">${device['Latency'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Downtime Since</div>
+                    <div class="device-info-value">${device['Downtime Since'] || 'N/A'}</div>
+                </div>
+            `;
+        }
+
+        function populateAckStatus(acknowledgment) {
+            const badge = document.getElementById('ackBadge');
+            const info = document.getElementById('ackInfo');
+            const details = document.getElementById('ackDetails');
+            
+            badge.className = `ack-badge ${acknowledgment.status}`;
+            badge.textContent = acknowledgment.status.charAt(0).toUpperCase() + acknowledgment.status.slice(1);
+            
+            if (acknowledgment.info) {
+                info.style.display = 'block';
+                details.textContent = `${acknowledgment.info.username} - ${acknowledgment.info.timestamp}`;
+                if (acknowledgment.info.comment) {
+                    details.textContent += ` - ${acknowledgment.info.comment}`;
+                }
+            } else {
+                info.style.display = 'none';
+            }
+        }
+
+        function populateComments(comments) {
+            const list = document.getElementById('commentsList');
+            if (comments.length === 0) {
+                list.innerHTML = '<div class="comment-item">No comments yet</div>';
+                return;
+            }
+            
+            list.innerHTML = comments.map(comment => `
+                <div class="comment-item">
+                    <div class="comment-header">
+                        <span><strong>${comment.username}</strong></span>
+                        <span>${comment.timestamp}</span>
+                    </div>
+                    <div class="comment-text">${comment.comment}</div>
+                </div>
+            `).join('');
+        }
+
+        function populateHistory(history) {
+            const list = document.getElementById('historyList');
+            if (history.length === 0) {
+                list.innerHTML = '<div class="history-item"><span class="history-timestamp">No recent history available</span></div>';
+                return;
+            }
+            
+            list.innerHTML = history.map(item => `
+                <div class="history-item">
+                    <span class="history-timestamp">${item.timestamp}</span>
+                    <span class="history-status status-${item.status.toLowerCase()}">${item.status}</span>
+                    <span class="history-latency">${item.latency}</span>
+                </div>
+            `).join('');
+        }
+
+        function addComment() {
+            console.log('addComment function called');
+            const commentInput = document.getElementById('commentInput');
+            
+            if (!commentInput) {
+                console.error('Comment input element not found!');
+                alert('Error: Input element not found');
+                return;
+            }
+            
+            const comment = commentInput.value.trim();
+            
+            console.log('Comment:', comment, 'Current IP:', currentDeviceIp);
+            
+            if (!comment) {
+                alert('Please enter a comment');
+                return;
+            }
+            
+            if (comment.length > 500) {
+                alert('Comment is too long. Maximum 500 characters allowed.');
+                return;
+            }
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            // Disable button to prevent double submission
+            const submitBtn = document.querySelector('.comment-submit');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Adding...';
+            submitBtn.disabled = true;
+            
+            console.log('Sending comment to API...');
+            fetch('/api/add_comment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: currentDeviceIp,
+                    comment: comment
+                })
+            })
+            .then(response => {
+                console.log('Add comment response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Add comment response data:', data);
+                if (data.success) {
+                    commentInput.value = '';
+                    // Show success feedback
+                    submitBtn.textContent = 'Added!';
+                    setTimeout(() => {
+                        submitBtn.textContent = originalText;
+                        submitBtn.disabled = false;
+                    }, 1000);
+                    // Reload device details to show new comment
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert('Error adding comment: ' + data.error);
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error adding comment:', error);
+                alert('Failed to add comment. Please check your connection.');
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+
+        function acknowledgeDevice(status) {
+            console.log('acknowledgeDevice called with status:', status);
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            let comment = '';
+            
+            console.log('Current IP:', currentDeviceIp);
+            
+            // Use more mobile-friendly prompts
+            if (status === 'ack') {
+                comment = prompt('Acknowledgment note (optional):') || '';
+            } else if (status === 'assigned') {
+                comment = prompt('Assignment note (optional):') || '';
+            } else if (status === 'unassigned') {
+                if (!confirm('Are you sure you want to unassign this device?')) {
+                    return;
+                }
+            }
+            
+            // Disable buttons during request
+            const buttons = document.querySelectorAll('.ack-btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            console.log('Sending acknowledgment to API...');
+            fetch('/api/acknowledge_device', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: currentDeviceIp,
+                    status: status,
+                    comment: comment
+                })
+            })
+            .then(response => {
+                console.log('Acknowledge device response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Acknowledge device response data:', data);
+                if (data.success) {
+                    // Show success feedback
+                    const statusText = status === 'ack' ? 'acknowledged' : 
+                                     status === 'assigned' ? 'assigned' : 'unassigned';
+                    
+                    // Reload device details to show new status
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert('Error updating status: ' + data.error);
+                    buttons.forEach(btn => btn.disabled = false);
+                }
+            })
+            .catch(error => {
+                console.error('Error updating status:', error);
+                alert('Failed to update status. Please check your connection.');
+                buttons.forEach(btn => btn.disabled = false);
+            });
+        }
+        
+        // Assignment Functions (Admin Only)
+        let currentAssignDeviceIp = null;
+        
+        function showAssignModal() {
+            if (!currentDeviceIp) {
+                alert('No device selected');
+                return;
+            }
+            
+            // Get device info from current results
+            let deviceInfo = null;
+            for (let result of fullData) {
+                if (result['SM IP'] === currentDeviceIp) {
+                    deviceInfo = result;
+                    break;
+                }
+            }
+            
+            if (!deviceInfo) {
+                alert('Device information not found');
+                return;
+            }
+            
+            // Populate assignment modal
+            document.getElementById('assignDeviceIp').textContent = deviceInfo['SM IP'];
+            document.getElementById('assignDeviceName').textContent = deviceInfo['Device Name'];
+            document.getElementById('assignDeviceLocation').textContent = deviceInfo['Location'];
+            document.getElementById('assignDeviceStatus').textContent = deviceInfo['Status'];
+            
+            currentAssignDeviceIp = currentDeviceIp;
+            
+            // Clear form
+            document.getElementById('assignToUser').value = '';
+            document.getElementById('assignCommentModal').value = '';
+            
+            // Show modal
+            document.getElementById('assignModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function showQuickAssignModal(deviceIp, deviceName, location) {
+            // Set current device for assignment
+            currentAssignDeviceIp = deviceIp;
+            
+            // Populate assignment modal
+            document.getElementById('assignDeviceIp').textContent = deviceIp;
+            document.getElementById('assignDeviceName').textContent = deviceName;
+            document.getElementById('assignDeviceLocation').textContent = location;
+            document.getElementById('assignDeviceStatus').textContent = 'Quick Assign';
+            
+            // Clear form
+            document.getElementById('assignToUser').value = '';
+            document.getElementById('assignCommentModal').value = '';
+            
+            // Show modal
+            document.getElementById('assignModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeAssignModal() {
+            document.getElementById('assignModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            currentAssignDeviceIp = null;
+        }
+        
+        function submitAssignment() {
+            const userId = document.getElementById('assignToUser').value;
+            const comment = document.getElementById('assignCommentModal').value;
+            
+            if (!userId) {
+                alert('Please select a user to assign to');
+                return;
+            }
+            
+            if (!currentAssignDeviceIp) {
+                alert('No device selected for assignment');
+                return;
+            }
+            
+            // Disable button during request
+            const submitBtn = document.querySelector('#assignModal .ack-btn.assign');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Assigning...';
+            submitBtn.disabled = true;
+            
+            fetch('/api/assign_device', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    device_ip: currentAssignDeviceIp,
+                    user_id: parseInt(userId),
+                    comment: comment
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    closeAssignModal();
+                    // Refresh device details to show new assignment
+                    showDeviceDetails(currentAssignDeviceIp);
+                } else {
+                    alert('Error: ' + data.error);
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error assigning device:', error);
+                alert('Failed to assign device. Please check your connection.');
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+        
+        function forcePing() {
+            if (!currentDeviceIp) {
+                alert('No device selected');
+                return;
+            }
+            
+            if (!confirm(`Perform manual ping test on SM IP ${currentDeviceIp}?`)) {
+                return;
+            }
+            
+            performPing(currentDeviceIp, 'SM');
+        }
+        
+        function forcePingAP() {
+            if (!currentDeviceIp) {
+                alert('No device selected');
+                return;
+            }
+            
+            // Get AP IP from current device data
+            let apIp = null;
+            for (let result of fullData) {
+                if (result['SM IP'] === currentDeviceIp) {
+                    apIp = result['AP IP'];
+                    break;
+                }
+            }
+            
+            if (!apIp || apIp === 'N/A') {
+                alert('AP IP not available for this device');
+                return;
+            }
+            
+            if (!confirm(`Perform manual ping test on AP IP ${apIp}?`)) {
+                return;
+            }
+            
+            performPing(apIp, 'AP');
+        }
+        
+        function performPing(ip, type) {
+            // Disable buttons during request
+            const buttons = document.querySelectorAll('.ack-btn.force-ping');
+            const originalTexts = [];
+            buttons.forEach((btn, index) => {
+                originalTexts[index] = btn.textContent;
+                btn.textContent = 'Pinging...';
+                btn.disabled = true;
+            });
+            
+            console.log('Performing force ping for:', ip, 'Type:', type);
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: ip,
+                    ping_type: type
+                })
+            })
+            .then(response => {
+                console.log('Force ping response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Force ping response data:', data);
+                if (data.success) {
+                    // Show result in a more detailed alert
+                    const statusColor = data.status === 'Reachable' ? '✅' : 
+                                       data.status === 'Degraded' ? '⚠️' : '❌';
+                    
+                    alert(`${statusColor} Manual ${type} Ping Result:\n\n` +
+                          `${type} IP: ${ip}\n` +
+                          `Status: ${data.status}\n` +
+                          `Latency: ${data.latency}\n` +
+                          `Time: ${data.timestamp}\n\n` +
+                          `This result has been logged and added to device comments.`);
+                    
+                    // Refresh device details to show updated information
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert(`${type} ping failed: ` + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error performing force ping:', error);
+                alert(`Failed to perform ${type} ping. Please check your connection.`);
+            })
+            .finally(() => {
+                buttons.forEach((btn, index) => {
+                    btn.textContent = originalTexts[index];
+                    btn.disabled = false;
+                });
+            });
+        }
+
+        // Improved mobile touch handling
+        let touchStartY = 0;
+        let touchEndY = 0;
+
+        // Close modal when clicking outside or swiping down
+        document.getElementById('deviceDetailsModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDeviceDetails();
+            }
+        });
+
+        // Add swipe-to-close functionality for mobile
+        document.getElementById('deviceDetailsModal').addEventListener('touchstart', function(e) {
+            touchStartY = e.changedTouches[0].screenY;
+        });
+
+        document.getElementById('deviceDetailsModal').addEventListener('touchend', function(e) {
+            touchEndY = e.changedTouches[0].screenY;
+            const swipeDistance = touchStartY - touchEndY;
+            
+            // If swiping down more than 100px and target is the modal background
+            if (swipeDistance < -100 && e.target === this) {
+                closeDeviceDetails();
+            }
+        });
+
         function updateTable(data) {
             const table = document.getElementById('pingTable');
             table.innerHTML = '';
+            
             data.forEach(row => {
                 const tr = document.createElement('tr');
+                
                 const fields = [
                     row['AP Name'] || 'N/A',
                     row['AP IP'] || 'N/A',
@@ -840,6 +2654,27 @@
                     if (index === 6) td.className = `status-${content.toLowerCase()}`;
                     tr.appendChild(td);
                 });
+                
+                // Add actions column for all users
+                const actionsTd = document.createElement('td');
+                actionsTd.className = 'actions-cell';
+                actionsTd.onclick = (e) => e.stopPropagation();
+                actionsTd.style.cssText = 'padding: 8px;';
+                
+                const detailsBtn = document.createElement('button');
+                detailsBtn.textContent = 'Details';
+                detailsBtn.className = 'btn-details';
+                detailsBtn.style.cssText = 'background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;';
+                detailsBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    console.log('Details button clicked for IP:', row['SM IP']);
+                    showTaskHistory(row['SM IP'], row['Device Name']);
+                };
+                
+                actionsTd.appendChild(detailsBtn);
+                tr.appendChild(actionsTd);
+                
                 table.appendChild(tr);
             });
             if (activeFilter) {
@@ -867,32 +2702,80 @@
 
         function updatePopSummary(popData) {
             const table = document.getElementById('popTableBody');
-            table.innerHTML = '';
-            if (!popData) {
-                console.warn('No pop summary data available');
+            
+            if (!table) {
+                console.error('Pop summary table body not found');
                 return;
             }
-            Object.keys(popData).sort().forEach(pop => {
-                const counts = popData[pop];
-                const tr = document.createElement('tr');
-                const cells = [
-                    pop,
-                    counts.Reachable || 0,
-                    counts.Degraded || 0,
-                    counts.Down || 0
-                ];
-                cells.forEach((content, index) => {
-                    const td = document.createElement('td');
-                    td.textContent = content;
-                    if (index > 0) {
-                        td.className = 'clickable';
-                        td.onclick = () => filterByLocationStatus(pop, ['Reachable', 'Degraded', 'Down'][index - 1]);
-                    }
-                    tr.appendChild(td);
-                });
-                table.appendChild(tr);
+            
+            if (!popData || Object.keys(popData).length === 0) {
+                console.warn('No pop summary data available, keeping existing table');
+                return; // Don't clear the table if no data
+            }
+            
+            // Get existing rows
+            const existingRows = Array.from(table.getElementsByTagName('tr'));
+            const existingLocations = new Map();
+            
+            // Map existing rows by location name
+            existingRows.forEach(row => {
+                const locationCell = row.cells[0];
+                if (locationCell) {
+                    existingLocations.set(locationCell.textContent, row);
+                }
             });
-            console.log(`Updated pop summary with ${Object.keys(popData).length} locations`);
+            
+            // Get sorted locations from new data
+            const sortedLocations = Object.keys(popData).sort();
+            
+            // Update existing rows and add new ones
+            sortedLocations.forEach((location, index) => {
+                const counts = popData[location];
+                let row = existingLocations.get(location);
+                
+                if (row) {
+                    // Update existing row numbers only
+                    if (row.cells[1]) row.cells[1].textContent = counts.Reachable || 0;
+                    if (row.cells[2]) row.cells[2].textContent = counts.Degraded || 0;
+                    if (row.cells[3]) row.cells[3].textContent = counts.Down || 0;
+                    
+                    // Remove from map so we know it's been processed
+                    existingLocations.delete(location);
+                } else {
+                    // Create new row for new location
+                    row = document.createElement('tr');
+                    const cells = [
+                        location,
+                        counts.Reachable || 0,
+                        counts.Degraded || 0,
+                        counts.Down || 0
+                    ];
+                    
+                    cells.forEach((content, cellIndex) => {
+                        const td = document.createElement('td');
+                        td.textContent = content;
+                        if (cellIndex > 0) {
+                            td.className = 'clickable';
+                            td.onclick = () => filterByLocationStatus(location, ['Reachable', 'Degraded', 'Down'][cellIndex - 1]);
+                        }
+                        row.appendChild(td);
+                    });
+                    
+                    table.appendChild(row);
+                }
+            });
+            
+            // Only remove rows for locations that no longer exist in the data
+            // But be conservative - only remove if we have substantial new data
+            if (sortedLocations.length > 0) {
+                existingLocations.forEach(row => {
+                    if (row.parentNode) {
+                        row.parentNode.removeChild(row);
+                    }
+                });
+            }
+            
+            console.log(`Updated pop summary: ${sortedLocations.length} locations, ${existingRows.length} existing rows`);
         }
 
         function createAlertElement(alert, isHistory = false) {
@@ -1019,8 +2902,7 @@
                         'Device Name': entry.org_name || 'N/A',
                         'AP Name': entry.ap_name || 'N/A',
                         'AP IP': entry.ap_ip || 'N/A',
-                        'AP MAC': entry.ap_mac || 'N/A',
-                        'SM MAC': entry.sm_mac || 'N/A'
+                        'CID': entry.cid || 'N/A'
                     };
                 });
             if (exportData.length === 0) {
@@ -1032,7 +2914,7 @@
                 const ws = XLSX.utils.json_to_sheet(exportData, {
                     header: [
                         'Timestamp', 'SM IP', 'Status', 'Latency', 'Downtime Duration', 'Uptime Duration',
-                        'Downtime Since', 'Uptime Since', 'Location', 'Device Name', 'AP Name', 'AP IP', 'AP MAC', 'SM MAC'
+                        'Downtime Since', 'Uptime Since', 'Location', 'Device Name', 'AP Name', 'AP IP', 'CID'
                     ]
                 });
                 const wb = XLSX.utils.book_new();
@@ -1290,8 +3172,7 @@ function exportIpHistory(format) {
                         'Device Name': entry.org_name || 'N/A',
                         'AP Name': entry.ap_name || 'N/A',
                         'AP IP': entry.ap_ip || 'N/A',
-                        'AP MAC': entry.ap_mac || 'N/A',
-                        'SM MAC': entry.sm_mac || 'N/A'
+                        'CID': entry.cid || 'N/A'
                     };
                 });
 
@@ -1557,8 +3438,7 @@ function exportIpHistory(format) {
                                 <th>Device Name</th>
                                 <th>AP Name</th>
                                 <th>AP IP</th>
-                                <th>AP MAC</th>
-                                <th>SM MAC</th>
+                                <th>CID</th>
                             </tr>
                         `;
                         table.appendChild(thead);
@@ -1589,8 +3469,7 @@ function exportIpHistory(format) {
                                 entry.org_name || 'N/A',
                                 entry.ap_name || 'N/A',
                                 entry.ap_ip || 'N/A',
-                                entry.ap_mac || 'N/A',
-                                entry.sm_mac || 'N/A'
+                                entry.cid || 'N/A'
                             ];
                             fields.forEach((content, index) => {
                                 const td = document.createElement('td');
@@ -1641,7 +3520,7 @@ function exportIpHistory(format) {
             activeFilter = { status };
             const rows = document.getElementById('pingTable').getElementsByTagName('tr');
             for (let i = 0; i < rows.length; i++) {
-                const statusCell = rows[i].getElementsByTagName('td')[7];
+                const statusCell = rows[i].getElementsByTagName('td')[6];
                 rows[i].style.display = (status === 'All' || statusCell.textContent === status) ? '' : 'none';
             }
             console.log(`Filtered table by status: ${status}`);
@@ -1651,8 +3530,8 @@ function exportIpHistory(format) {
             activeFilter = { location, status };
             const rows = document.getElementById('pingTable').getElementsByTagName('tr');
             for (let i = 0; i < rows.length; i++) {
-                const locationCell = rows[i].getElementsByTagName('td')[6];
-                const statusCell = rows[i].getElementsByTagName('td')[7];
+                const locationCell = rows[i].getElementsByTagName('td')[5];
+                const statusCell = rows[i].getElementsByTagName('td')[6];
                 rows[i].style.display = (locationCell.textContent === location && statusCell.textContent === status) ? '' : 'none';
             }
             console.log(`Filtered table by location: ${location}, status: ${status}`);
@@ -1721,6 +3600,141 @@ function refreshNow() {
     console.log('Requested manual refresh');
 }
 
+// Notification Functions
+let notificationDropdownOpen = false;
+
+function toggleNotifications() {
+    const dropdown = document.getElementById('notificationDropdown');
+    notificationDropdownOpen = !notificationDropdownOpen;
+    
+    if (notificationDropdownOpen) {
+        dropdown.classList.add('show');
+        loadMyAssignedTasks();
+    } else {
+        dropdown.classList.remove('show');
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(event) {
+    const bell = document.querySelector('.notification-bell');
+    const dropdown = document.getElementById('notificationDropdown');
+    
+    if (bell && dropdown && !bell.contains(event.target)) {
+        dropdown.classList.remove('show');
+        notificationDropdownOpen = false;
+    }
+});
+
+function loadMyAssignedTasks() {
+    const listContainer = document.getElementById('notificationList');
+    listContainer.innerHTML = '<div class="notification-empty"><div class="notification-empty-icon">⏳</div>Loading...</div>';
+    
+    fetch('/api/my_tasks_list')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Filter to show only open and in_progress tasks (not closed)
+                const activeTasks = data.tasks.filter(task => task.status !== 'closed');
+                updateNotificationBadge(activeTasks.length);
+                
+                if (activeTasks && activeTasks.length > 0) {
+                    listContainer.innerHTML = '';
+                    activeTasks.forEach(task => {
+                        const item = document.createElement('div');
+                        item.className = 'notification-item';
+                        item.onclick = () => {
+                            // Navigate to My Tasks page with tab and task ID parameters
+                            window.location.href = `/my_tasks?tab=my-tasks&task=${task.id}`;
+                        };
+                        
+                        let statusClass = 'status-unknown';
+                        let statusBg = '#999';
+                        let statusText = task.status.replace('_', ' ').toUpperCase();
+                        
+                        if (task.status === 'open') {
+                            statusClass = 'status-down';
+                            statusBg = '#f44336';
+                        } else if (task.status === 'in_progress') {
+                            statusClass = 'status-degraded';
+                            statusBg = '#ff9800';
+                        } else if (task.status === 'closed') {
+                            statusClass = 'status-reachable';
+                            statusBg = '#4caf50';
+                        }
+                        
+                        const createdDate = new Date(task.created_at);
+                        const timeAgo = getTimeAgo(createdDate);
+                        
+                        item.innerHTML = `
+                            <div class="notification-item-ip">📍 ${task.sm_ip}</div>
+                            <div class="notification-item-name">${task.title}</div>
+                            <div class="notification-item-meta" style="font-size: 11px; color: #666; margin-top: 4px;">
+                                🕐 ${timeAgo}
+                            </div>
+                            <div class="notification-item-status" style="background: ${statusBg}; color: white; margin-top: 6px;">
+                                ${statusText}
+                            </div>
+                        `;
+                        listContainer.appendChild(item);
+                    });
+                } else {
+                    listContainer.innerHTML = '<div class="notification-empty"><div class="notification-empty-icon">📭</div>No active tasks</div>';
+                }
+            } else {
+                listContainer.innerHTML = '<div class="notification-empty"><div class="notification-empty-icon">⚠️</div>Error loading tasks</div>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading tasks:', error);
+            listContainer.innerHTML = '<div class="notification-empty"><div class="notification-empty-icon">⚠️</div>Error loading tasks</div>';
+            updateNotificationBadge(0);
+        });
+}
+
+function getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+}
+
+function updateNotificationBadge(count) {
+    const badge = document.getElementById('notificationBadge');
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'block';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// Load notification count on page load and refresh periodically
+document.addEventListener('DOMContentLoaded', function() {
+    loadMyAssignedTasks();
+    
+    // Refresh notification count every 30 seconds
+    setInterval(function() {
+        fetch('/api/my_tasks_list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Only count open and in_progress tasks
+                    const activeTasks = data.tasks.filter(task => task.status !== 'closed');
+                    updateNotificationBadge(activeTasks.length);
+                }
+            })
+            .catch(error => console.error('Error updating notification badge:', error));
+    }, 30000);
+});
+
 function toggleSection(sectionId, buttonId) {
     const section = document.getElementById(sectionId);
     const button = document.getElementById(buttonId);
@@ -1734,7 +3748,6 @@ function toggleSection(sectionId, buttonId) {
 document.getElementById('togglePopSummary').addEventListener('click', () => toggleSection('popSummary', 'togglePopSummary'));
 document.getElementById('toggleAlertLog').addEventListener('click', () => toggleSection('alertLogContainer', 'toggleAlertLog'));
 document.getElementById('toggleLogViewer').addEventListener('click', () => toggleSection('logViewerContainer', 'toggleLogViewer'));
-document.getElementById('toggleDowntimeAnalysis').addEventListener('click', () => toggleSection('downtimeAnalysisContainer', 'toggleDowntimeAnalysis'));
 
 function exportAlertLog() {
     if (!allAlerts || allAlerts.length === 0) {
@@ -1765,8 +3778,7 @@ function exportAlertLog() {
                 'Device Name': entry.org_name || 'N/A',
                 'AP Name': entry.ap_name || 'N/A',
                 'AP IP': entry.ap_ip || 'N/A',
-                'AP MAC': entry.ap_mac || 'N/A',
-                'SM MAC': entry.sm_mac || 'N/A'
+                'CID': entry.cid || 'N/A'
             };
         });
     if (exportData.length === 0) {
@@ -1778,7 +3790,7 @@ function exportAlertLog() {
         const ws = XLSX.utils.json_to_sheet(exportData, {
             header: [
                 'Timestamp', 'SM IP', 'Status', 'Latency', 'Downtime Duration', 'Uptime Duration',
-                'Downtime Since', 'Uptime Since', 'Location', 'Device Name', 'AP Name', 'AP IP', 'AP MAC', 'SM MAC'
+                'Downtime Since', 'Uptime Since', 'Location', 'Device Name', 'AP Name', 'AP IP', 'CID'
             ]
         });
         const wb = XLSX.utils.book_new();

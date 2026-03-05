@@ -1,0 +1,1822 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, user-scalable=no'>
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Mobile Monitor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+            overflow-x: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        .mobile-header {
+            background: linear-gradient(135deg, #1a73e8, #4285f4);
+            color: white;
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header-left {
+            flex: 1;
+        }
+        
+        .header-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .header-subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .header-user {
+            font-size: 12px;
+            opacity: 0.8;
+            text-align: right;
+        }
+        
+        .user-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        
+        .user-btn {
+            padding: 4px 8px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 11px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        
+        .user-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .status-cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            padding: 20px;
+            margin-bottom: 10px;
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #ddd;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .status-card:active {
+            transform: scale(0.98);
+        }
+        
+        .status-card.reachable {
+            border-left-color: #4caf50;
+        }
+        
+        .status-card.degraded {
+            border-left-color: #ff9800;
+        }
+        
+        .status-card.down {
+            border-left-color: #f44336;
+        }
+        
+        .status-card.total {
+            border-left-color: #2196f3;
+        }
+        
+        .card-number {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .card-label {
+            font-size: 14px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .quick-actions {
+            padding: 0 20px 20px;
+        }
+        
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        
+        .action-btn {
+            background: white;
+            border: none;
+            border-radius: 12px;
+            padding: 15px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .action-btn:active {
+            transform: scale(0.98);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        }
+        
+        .action-btn.primary {
+            background: #1a73e8;
+            color: white;
+        }
+        
+        .action-btn.success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .action-btn.warning {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .action-btn.danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .device-list {
+            padding: 0 20px 20px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .device-item {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #ddd;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+        
+        .device-item:active {
+            transform: scale(0.98);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        }
+        
+        .device-item::after {
+            content: "👆 Tap";
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(26, 115, 232, 0.1);
+            color: #1a73e8;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        
+        .device-item.reachable {
+            border-left-color: #4caf50;
+        }
+        
+        .device-item.degraded {
+            border-left-color: #ff9800;
+        }
+        
+        .device-item.down {
+            border-left-color: #f44336;
+        }
+        
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .device-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        
+        .device-status {
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .status-reachable {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        
+        .status-degraded {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .status-down {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .device-details {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .device-ip {
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .refresh-indicator {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #1a73e8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .filter-tabs {
+            display: flex;
+            padding: 0 20px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            gap: 10px;
+        }
+        
+        .filter-tab {
+            background: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .filter-tab.active {
+            background: #1a73e8;
+            color: white;
+        }
+        
+        .filter-tab:active {
+            transform: scale(0.95);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+        
+        .pull-to-refresh {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        /* Device Details Modal */
+        .device-details-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .device-details-content {
+            background: white;
+            border-radius: 12px 12px 0 0;
+            padding: 20px;
+            margin-top: 10vh;
+            min-height: 90vh;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+        
+        .device-details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+        
+        .device-details-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1a73e8;
+            margin: 0;
+        }
+        
+        .device-details-close {
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .device-info-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        
+        .device-info-item {
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid #1a73e8;
+        }
+        
+        .device-info-label {
+            font-weight: bold;
+            color: #555;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        
+        .device-info-value {
+            font-size: 16px;
+            color: #333;
+            word-break: break-all;
+        }
+        
+        .ack-section {
+            margin: 25px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
+            border-radius: 12px;
+            border-left: 4px solid #1a73e8;
+        }
+        
+        .ack-section h4 {
+            margin: 0 0 15px 0;
+            color: #1a73e8;
+            font-size: 16px;
+        }
+        
+        .ack-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .ack-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .ack-badge.unassigned {
+            background: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+        
+        .ack-badge.ack {
+            background: #fff3e0;
+            color: #ef6c00;
+            border: 1px solid #ff9800;
+        }
+        
+        .ack-badge.assigned {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+        
+        .ack-buttons {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-top: 15px;
+        }
+        
+        .ack-btn {
+            padding: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            min-height: 50px;
+        }
+        
+        .ack-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .ack-btn.acknowledge {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .ack-btn.assign {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .ack-btn.unassign {
+            background: #f44336;
+            color: white;
+        }
+        
+        .ack-btn.force-ping {
+            background: #fd7e14;
+            color: white;
+        }
+        
+        .comments-section {
+            margin: 25px 0;
+        }
+        
+        .comments-section h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .comment-form {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 12px;
+        }
+        
+        .comment-form input,
+        .comment-input {
+            width: 100%;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+            min-height: 50px;
+        }
+        
+        .comment-input {
+            resize: vertical;
+            min-height: 100px;
+            font-family: inherit;
+        }
+        
+        .comment-submit {
+            width: 100%;
+            padding: 16px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            min-height: 50px;
+        }
+        
+        .comments-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .comment-item {
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 14px;
+            background: white;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border-left: 3px solid #e0e0e0;
+        }
+        
+        .comment-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .comment-text {
+            color: #333;
+            line-height: 1.4;
+        }
+        
+        .history-section {
+            margin-top: 25px;
+        }
+        
+        .history-section h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .history-list {
+            max-height: 250px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        
+        .history-item {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 5px;
+            padding: 10px 0;
+            font-size: 14px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        
+        .history-timestamp {
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .history-status {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            margin: 2px 0;
+        }
+        
+        .history-latency {
+            color: #333;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        /* Status color classes for device info */
+        .status-reachable {
+            color: #4caf50 !important;
+            font-weight: bold;
+        }
+        
+        .status-degraded {
+            color: #ff9800 !important;
+            font-weight: bold;
+        }
+        
+        .status-down {
+            color: #f44336 !important;
+            font-weight: bold;
+        }
+        
+        .status-unknown {
+            color: #777 !important;
+            font-weight: bold;
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #121212;
+                color: #e0e0e0;
+            }
+            
+            .status-card, .action-btn, .device-item {
+                background: #1e1e1e;
+                color: #e0e0e0;
+            }
+            
+            .filter-tab {
+                background: #1e1e1e;
+                color: #e0e0e0;
+            }
+            
+            .device-ip {
+                background: #333;
+                color: #e0e0e0;
+            }
+        }
+        
+        /* Landscape orientation adjustments */
+        @media (orientation: landscape) and (max-height: 500px) {
+            .status-cards {
+                grid-template-columns: repeat(4, 1fr);
+                padding: 15px;
+            }
+            
+            .mobile-header {
+                padding: 10px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="mobile-header">
+        <div class="header-content">
+            <div class="header-left">
+                <div class="header-title">Network Monitor</div>
+                <div class="header-subtitle" id="lastUpdate">Loading...</div>
+            </div>
+            <div class="header-user">
+                <div><strong>{{ user.username }}</strong></div>
+                <div class="user-actions">
+                    <a href="{{ url_for('profile') }}" class="user-btn">Profile</a>
+                    {% if user.role == 'admin' %}
+                        <a href="{{ url_for('admin_dashboard') }}" class="user-btn">Admin</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="user-btn">Logout</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="status-cards">
+        <div class="status-card total">
+            <div class="card-number" id="totalDevices">-</div>
+            <div class="card-label">Total</div>
+        </div>
+        <div class="status-card reachable">
+            <div class="card-number" id="reachableDevices">-</div>
+            <div class="card-label">Online</div>
+        </div>
+        <div class="status-card degraded">
+            <div class="card-number" id="degradedDevices">-</div>
+            <div class="card-label">Degraded</div>
+        </div>
+        <div class="status-card down">
+            <div class="card-number" id="downDevices">-</div>
+            <div class="card-label">Down</div>
+        </div>
+    </div>
+    
+    <div class="quick-actions">
+        <div class="action-buttons">
+            <button class="action-btn primary" onclick="refreshData()">
+                <span class="spinner" id="refreshSpinner" style="display: none;"></span>
+                Refresh
+            </button>
+            <button class="action-btn success" onclick="showOnlineOnly()">
+                Online Only
+            </button>
+            <button class="action-btn warning" onclick="showProblemsOnly()">
+                Problems
+            </button>
+            <button class="action-btn" onclick="window.location.href='/'">
+                Full View
+            </button>
+        </div>
+    </div>
+    
+    <div class="filter-tabs">
+        <button class="filter-tab active" onclick="filterDevices('all')">All</button>
+        <button class="filter-tab" onclick="filterDevices('down')">Down</button>
+        <button class="filter-tab" onclick="filterDevices('degraded')">Degraded</button>
+        <button class="filter-tab" onclick="filterDevices('reachable')">Online</button>
+    </div>
+    
+    <div class="device-list">
+        <div class="section-title">Device Status</div>
+        <div id="deviceContainer">
+            <div class="empty-state">
+                <div class="empty-icon">📡</div>
+                <div>Loading devices...</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="refresh-indicator" id="refreshIndicator">
+        <span class="spinner"></span>
+        Refreshing...
+    </div>
+    
+    <!-- Device Details Modal -->
+    <div id="deviceDetailsModal" class="device-details-modal">
+        <div class="device-details-content">
+            <div class="device-details-header">
+                <h3 id="deviceDetailsTitle" class="device-details-title">Device Details</h3>
+                <button class="device-details-close" onclick="closeDeviceDetails()" aria-label="Close">&times;</button>
+            </div>
+            
+            <div class="device-info-grid" id="deviceInfoGrid">
+                <!-- Device info will be populated here -->
+            </div>
+            
+            <div class="ack-section">
+                <h4>Assignment Status</h4>
+                <div class="ack-status">
+                    <span>Current Status:</span>
+                    <span id="ackBadge" class="ack-badge unassigned">Unassigned</span>
+                </div>
+                <div id="ackInfo" style="display: none;">
+                    <small id="ackDetails"></small>
+                </div>
+                <div class="ack-buttons">
+                    <button class="ack-btn acknowledge" onclick="acknowledgeDevice('ack')">
+                        Acknowledge
+                    </button>
+                    <button class="ack-btn assign" onclick="acknowledgeDevice('assigned')">
+                        Assign to Me
+                    </button>
+                    {% if user.role == 'admin' %}
+                    <button class="ack-btn assign-other" onclick="showAssignModal()">
+                        Assign to User
+                    </button>
+                    {% endif %}
+                    <button class="ack-btn unassign" onclick="acknowledgeDevice('unassigned')">
+                        Unassign
+                    </button>
+                    <button class="ack-btn force-ping" onclick="forcePing()">
+                        Force Ping SM
+                    </button>
+                    <button class="ack-btn force-ping" onclick="forcePingAP()" style="background: #17a2b8;">
+                        Force Ping AP
+                    </button>
+                </div>
+            </div>
+            
+            <div class="comments-section">
+                <h4>Comments & Notes</h4>
+                <div class="comment-form">
+                    <textarea id="commentInput" class="comment-input" placeholder="Add a comment or note about this device..." maxlength="500"></textarea>
+                    <button class="comment-submit" onclick="addComment()">Add Comment</button>
+                </div>
+                <div class="comments-list" id="commentsList">
+                    <!-- Comments will be populated here -->
+                </div>
+            </div>
+            
+            <div class="history-section">
+                <h4>Recent History (Last 24 Hours)</h4>
+                <div class="history-list" id="historyList">
+                    <!-- History will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let socket = io();
+        let devices = [];
+        let currentFilter = 'all';
+        let lastRefresh = new Date();
+        
+        // Socket event handlers
+        socket.on('update_status', function(data) {
+            devices = data.results || [];
+            updateSummary(data);
+            updateDeviceList();
+            updateLastRefreshTime();
+        });
+        
+        socket.on('connect', function() {
+            console.log('Connected to server');
+            refreshData();
+        });
+        
+        socket.on('disconnect', function() {
+            console.log('Disconnected from server');
+        });
+        
+        function updateSummary(data) {
+            const results = data.results || [];
+            const summary = {
+                total: results.length,
+                reachable: results.filter(d => d.Status === 'Reachable').length,
+                degraded: results.filter(d => d.Status === 'Degraded').length,
+                down: results.filter(d => d.Status === 'Down').length
+            };
+            
+            document.getElementById('totalDevices').textContent = summary.total;
+            document.getElementById('reachableDevices').textContent = summary.reachable;
+            document.getElementById('degradedDevices').textContent = summary.degraded;
+            document.getElementById('downDevices').textContent = summary.down;
+        }
+        
+        function updateDeviceList() {
+            const container = document.getElementById('deviceContainer');
+            const filteredDevices = filterDevicesByStatus(devices, currentFilter);
+            
+            if (filteredDevices.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📱</div>
+                        <div>No ${currentFilter === 'all' ? '' : currentFilter} devices found</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            const html = filteredDevices.map(device => `
+                <div class="device-item ${device.Status.toLowerCase()}" onclick="showTaskHistory('${device['SM IP']}', '${device['Device Name']}')" style="cursor: pointer;">
+                    <div class="device-header">
+                        <div class="device-name">${device['Device Name'] || 'Unknown Device'}</div>
+                        <div class="device-status status-${device.Status.toLowerCase()}">${device.Status}</div>
+                    </div>
+                    <div class="device-details">
+                        <div><strong>IP:</strong> <span class="device-ip">${device['SM IP']}</span></div>
+                        <div><strong>Location:</strong> ${device.Location || 'Unknown'}</div>
+                        <div><strong>Latency:</strong> ${device.Latency || 'N/A'}</div>
+                        ${device.Status === 'Down' && device['Downtime Since'] !== 'N/A' ? 
+                            `<div><strong>Down Since:</strong> ${formatDowntime(device['Downtime Since'])}</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+        
+        function filterDevicesByStatus(devices, status) {
+            if (status === 'all') return devices;
+            return devices.filter(device => device.Status.toLowerCase() === status);
+        }
+        
+        function filterDevices(status) {
+            currentFilter = status;
+            
+            // Update active tab
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            updateDeviceList();
+        }
+        
+        function showOnlineOnly() {
+            filterDevices('reachable');
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.textContent === 'Online') {
+                    tab.classList.add('active');
+                }
+            });
+        }
+        
+        function showProblemsOnly() {
+            const problemDevices = devices.filter(d => d.Status === 'Down' || d.Status === 'Degraded');
+            const container = document.getElementById('deviceContainer');
+            
+            if (problemDevices.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">✅</div>
+                        <div>No problems detected!</div>
+                        <div style="font-size: 12px; margin-top: 5px; opacity: 0.7;">All devices are online</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            const html = problemDevices.map(device => `
+                <div class="device-item ${device.Status.toLowerCase()}">
+                    <div class="device-header">
+                        <div class="device-name">${device['Device Name'] || 'Unknown Device'}</div>
+                        <div class="device-status status-${device.Status.toLowerCase()}">${device.Status}</div>
+                    </div>
+                    <div class="device-details">
+                        <div><strong>IP:</strong> <span class="device-ip">${device['SM IP']}</span></div>
+                        <div><strong>Location:</strong> ${device.Location || 'Unknown'}</div>
+                        <div><strong>Latency:</strong> ${device.Latency || 'N/A'}</div>
+                        ${device.Status === 'Down' && device['Downtime Since'] !== 'N/A' ? 
+                            `<div><strong>Down Since:</strong> ${formatDowntime(device['Downtime Since'])}</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+            
+            // Update filter tabs
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+        }
+        
+        function refreshData() {
+            const spinner = document.getElementById('refreshSpinner');
+            const indicator = document.getElementById('refreshIndicator');
+            
+            spinner.style.display = 'inline-block';
+            indicator.style.display = 'block';
+            
+            socket.emit('refresh_now');
+            
+            setTimeout(() => {
+                spinner.style.display = 'none';
+                indicator.style.display = 'none';
+            }, 2000);
+        }
+        
+        function updateLastRefreshTime() {
+            lastRefresh = new Date();
+            const timeStr = lastRefresh.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            document.getElementById('lastUpdate').textContent = `Last updated: ${timeStr}`;
+        }
+        
+        function formatDowntime(downtimeStr) {
+            if (!downtimeStr || downtimeStr === 'N/A') return 'N/A';
+            
+            try {
+                const downtime = new Date(downtimeStr);
+                const now = new Date();
+                const diffMs = now - downtime;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMins / 60);
+                const diffDays = Math.floor(diffHours / 24);
+                
+                if (diffDays > 0) return `${diffDays}d ${diffHours % 24}h ago`;
+                if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m ago`;
+                return `${diffMins}m ago`;
+            } catch (e) {
+                return downtimeStr;
+            }
+        }
+        
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            socket.emit('refresh_now');
+        }, 30000);
+        
+        // Pull-to-refresh simulation (for mobile browsers that support it)
+        let startY = 0;
+        let pullDistance = 0;
+        
+        document.addEventListener('touchstart', function(e) {
+            startY = e.touches[0].pageY;
+        });
+        
+        document.addEventListener('touchmove', function(e) {
+            if (window.scrollY === 0) {
+                pullDistance = e.touches[0].pageY - startY;
+                if (pullDistance > 100) {
+                    document.body.style.transform = `translateY(${Math.min(pullDistance - 100, 50)}px)`;
+                }
+            }
+        });
+        
+        document.addEventListener('touchend', function(e) {
+            if (pullDistance > 100) {
+                refreshData();
+            }
+            document.body.style.transform = '';
+            pullDistance = 0;
+        });
+        
+        // Prevent zoom on double tap
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function (event) {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+        
+        // Initialize
+        updateLastRefreshTime();
+        
+        // Device Details Modal Functions
+        let currentDeviceIp = null;
+
+        function showDeviceDetails(ip) {
+            console.log('showDeviceDetails called with IP:', ip);
+            currentDeviceIp = ip;
+            const modal = document.getElementById('deviceDetailsModal');
+            
+            if (!modal) {
+                console.error('Device details modal not found!');
+                alert('Error: Modal not found');
+                return;
+            }
+            
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Prevent background scroll
+            document.getElementById('deviceDetailsTitle').textContent = `Device Details - ${ip}`;
+            
+            // Show loading state
+            const deviceInfoGrid = document.getElementById('deviceInfoGrid');
+            if (deviceInfoGrid) {
+                deviceInfoGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading device details...</div>';
+            }
+            
+            // Load device details
+            console.log('Fetching device details for IP:', ip);
+            fetch(`/api/device_details/${ip}`)
+                .then(response => {
+                    console.log('Device details response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Device details data received:', data);
+                    if (data.error) {
+                        alert('Error loading device details: ' + data.error);
+                        closeDeviceDetails();
+                        return;
+                    }
+                    
+                    populateDeviceInfo(data.device);
+                    populateAckStatus(data.acknowledgment);
+                    populateComments(data.comments);
+                    populateHistory(data.history);
+                })
+                .catch(error => {
+                    console.error('Error loading device details:', error);
+                    alert('Failed to load device details. Please check your connection.');
+                    closeDeviceDetails();
+                });
+        }
+
+        function closeDeviceDetails() {
+            document.getElementById('deviceDetailsModal').style.display = 'none';
+            document.body.style.overflow = ''; // Restore body scroll
+            currentDeviceIp = null;
+        }
+
+        function showTaskHistory(ip, deviceName) {
+            console.log('showTaskHistory called for IP:', ip, 'Device:', deviceName);
+            const modal = document.getElementById('deviceDetailsModal');
+            
+            if (!modal) {
+                console.error('Device details modal not found!');
+                alert('Error: Modal not found');
+                return;
+            }
+            
+            console.log('Opening modal for task history');
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            document.getElementById('deviceDetailsTitle').textContent = `Task History - ${deviceName}`;
+            
+            // Show loading state
+            const deviceInfoGrid = document.getElementById('deviceInfoGrid');
+            if (deviceInfoGrid) {
+                deviceInfoGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading task history...</div>';
+            }
+            
+            // Hide Assignment and Comments sections, keep History visible
+            const ackSection = document.getElementById('ackSection');
+            const commentsSection = document.getElementById('commentsSection');
+            const historySection = document.getElementById('historySection');
+            
+            if (ackSection) ackSection.style.display = 'none';
+            if (commentsSection) commentsSection.style.display = 'none';
+            if (historySection) historySection.style.display = 'block'; // Keep history visible
+            
+            console.log('Fetching task history from API...');
+            // Load task history
+            fetch(`/api/device_task_history/${ip}`)
+                .then(response => {
+                    console.log('Task history response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Task history data received:', data);
+                    if (data.error) {
+                        alert('Error loading task history: ' + data.error);
+                        closeDeviceDetails();
+                        return;
+                    }
+                    
+                    displayTaskHistory(data.tasks, data.total_count, ip, deviceName);
+                })
+                .catch(error => {
+                    console.error('Error loading task history:', error);
+                    alert('Failed to load task history: ' + error.message);
+                    closeDeviceDetails();
+                });
+        }
+
+        function displayTaskHistory(tasks, totalCount, ip, deviceName) {
+            const grid = document.getElementById('deviceInfoGrid');
+            
+            let html = `
+                <div style="background: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <h3 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">📋 Task Summary for ${deviceName}</h3>
+                    <div style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+                        <div style="background: white; padding: 12px; border-radius: 6px; border-left: 4px solid #1a73e8;">
+                            <div style="font-size: 20px; font-weight: bold; color: #1a73e8;">${totalCount}</div>
+                            <div style="font-size: 12px; color: #666;">Total Tasks</div>
+                        </div>
+                        <div style="background: white; padding: 12px; border-radius: 6px; border-left: 4px solid #4caf50;">
+                            <div style="font-size: 20px; font-weight: bold; color: #4caf50;">${tasks.filter(t => t.status === 'closed').length}</div>
+                            <div style="font-size: 12px; color: #666;">Closed</div>
+                        </div>
+                        <div style="background: white; padding: 12px; border-radius: 6px; border-left: 4px solid #ff9800;">
+                            <div style="font-size: 20px; font-weight: bold; color: #ff9800;">${tasks.filter(t => t.status === 'open' || t.status === 'in_progress').length}</div>
+                            <div style="font-size: 12px; color: #666;">Open</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            if (tasks.length === 0) {
+                html += '<div style="text-align: center; padding: 30px; color: #999; font-size: 14px;">No tasks have been created for this device yet.</div>';
+            } else {
+                html += '<div style="background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">';
+                
+                tasks.forEach((task, index) => {
+                    const statusColors = {
+                        'open': '#ff9800',
+                        'in_progress': '#2196f3',
+                        'closed': '#4caf50'
+                    };
+                    const statusColor = statusColors[task.status] || '#999';
+                    const priorityIcons = {
+                        'high': '🔴',
+                        'medium': '🟡',
+                        'low': '🟢'
+                    };
+                    
+                    html += `
+                        <div onclick="showTaskDetails(${task.id})" style="padding: 12px 15px; border-bottom: 1px solid #f0f0f0; cursor: pointer; background: white; active:background: #f9f9f9;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap;">
+                                <span style="font-weight: bold; color: #1a73e8; font-size: 13px;">${task.task_id || `TASK-${1000 + task.id}`}</span>
+                                <span style="background: ${statusColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">
+                                    ${task.status.toUpperCase().replace('_', ' ')}
+                                </span>
+                                <span style="font-size: 13px;">${priorityIcons[task.priority] || ''}</span>
+                            </div>
+                            <div style="color: #333; font-size: 13px; margin-bottom: 3px;">${task.title}</div>
+                            <div style="color: #666; font-size: 11px;">
+                                👤 ${task.assigned_to || 'Unassigned'} • 📅 ${new Date(task.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            }
+            
+            grid.innerHTML = html;
+        }
+
+        function showTaskDetails(taskId) {
+            console.log('Loading task details for task ID:', taskId);
+            
+            // Show loading
+            const grid = document.getElementById('deviceInfoGrid');
+            grid.innerHTML = '<div style="text-align: center; padding: 30px;">Loading task details...</div>';
+            
+            // Fetch task details
+            fetch(`/api/task/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error loading task: ' + data.error);
+                        return;
+                    }
+                    
+                    displaySingleTaskDetails(data.task);
+                })
+                .catch(error => {
+                    console.error('Error loading task:', error);
+                    alert('Failed to load task details');
+                });
+        }
+
+        function displaySingleTaskDetails(task) {
+            const grid = document.getElementById('deviceInfoGrid');
+            
+            const statusColors = {
+                'open': '#ff9800',
+                'in_progress': '#2196f3',
+                'closed': '#4caf50'
+            };
+            const statusColor = statusColors[task.status] || '#999';
+            const priorityIcons = {
+                'high': '🔴',
+                'medium': '🟡',
+                'low': '🟢'
+            };
+            
+            let html = `
+                <div style="margin-bottom: 15px;">
+                    <button onclick="showTaskHistory('${task.sm_ip}', 'Device')" style="background: #757575; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                        ← Back to List
+                    </button>
+                </div>
+                
+                <div style="background: white; border: 2px solid ${statusColor}; border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-size: 16px; font-weight: bold; color: #1a73e8; margin-bottom: 5px;">
+                            ${task.task_id || `TASK-${1000 + task.id}`}
+                        </div>
+                        <div style="background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; display: inline-block; margin-bottom: 8px;">
+                            ${task.status.toUpperCase().replace('_', ' ')}
+                        </div>
+                        <div style="font-size: 15px; color: #333;">
+                            ${priorityIcons[task.priority] || ''} ${task.title}
+                        </div>
+                    </div>
+                    
+                    <div style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+                        <strong style="color: #666; font-size: 12px;">Description:</strong>
+                        <div style="margin-top: 6px; font-size: 13px; color: #333; white-space: pre-wrap; line-height: 1.5;">
+                            ${task.description || 'No description'}
+                        </div>
+                    </div>
+                    
+                    <div style="font-size: 12px; line-height: 1.8; color: #666;">
+                        <div><strong>📍 Device:</strong> ${task.sm_ip}</div>
+                        <div><strong>🎯 Priority:</strong> ${task.priority.toUpperCase()}</div>
+                        <div><strong>👤 Assigned:</strong> ${task.assigned_to || 'Unassigned'}</div>
+                        <div><strong>✍️ Created By:</strong> ${task.created_by}</div>
+                        <div><strong>📅 Created:</strong> ${new Date(task.created_at).toLocaleString()}</div>
+                        ${task.closed_at ? `<div><strong>✅ Closed:</strong> ${new Date(task.closed_at).toLocaleString()}</div>` : ''}
+                        ${task.closed_by ? `<div><strong>🔒 Closed By:</strong> ${task.closed_by}</div>` : ''}
+                    </div>
+                    
+                    ${task.resolution ? `
+                        <div style="margin-top: 15px; padding: 12px; background: #e8f5e8; border-left: 3px solid #4caf50; border-radius: 6px;">
+                            <strong style="color: #2e7d32; font-size: 12px;">✅ Resolution:</strong>
+                            <div style="margin-top: 6px; font-size: 12px; color: #2e7d32; white-space: pre-wrap; line-height: 1.5;">
+                                ${task.resolution}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            grid.innerHTML = html;
+        }
+
+        function populateDeviceInfo(device) {
+            const grid = document.getElementById('deviceInfoGrid');
+            grid.innerHTML = `
+                <div class="device-info-item">
+                    <div class="device-info-label">AP Name</div>
+                    <div class="device-info-value">${device['AP Name'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">AP IP</div>
+                    <div class="device-info-value">${device['AP IP'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">CID</div>
+                    <div class="device-info-value">${device['CID'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">SM IP</div>
+                    <div class="device-info-value">${device['SM IP'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Device Name</div>
+                    <div class="device-info-value">${device['Device Name'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Location</div>
+                    <div class="device-info-value">${device['Location'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Status</div>
+                    <div class="device-info-value status-${device['Status'].toLowerCase()}">${device['Status'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Latency</div>
+                    <div class="device-info-value">${device['Latency'] || 'N/A'}</div>
+                </div>
+                <div class="device-info-item">
+                    <div class="device-info-label">Downtime Since</div>
+                    <div class="device-info-value">${device['Downtime Since'] || 'N/A'}</div>
+                </div>
+            `;
+        }
+
+        function populateAckStatus(acknowledgment) {
+            const badge = document.getElementById('ackBadge');
+            const info = document.getElementById('ackInfo');
+            const details = document.getElementById('ackDetails');
+            
+            badge.className = `ack-badge ${acknowledgment.status}`;
+            badge.textContent = acknowledgment.status.charAt(0).toUpperCase() + acknowledgment.status.slice(1);
+            
+            if (acknowledgment.info) {
+                info.style.display = 'block';
+                details.textContent = `${acknowledgment.info.username} - ${acknowledgment.info.timestamp}`;
+                if (acknowledgment.info.comment) {
+                    details.textContent += ` - ${acknowledgment.info.comment}`;
+                }
+            } else {
+                info.style.display = 'none';
+            }
+        }
+
+        function populateComments(comments) {
+            const list = document.getElementById('commentsList');
+            if (comments.length === 0) {
+                list.innerHTML = '<div class="comment-item">No comments yet</div>';
+                return;
+            }
+            
+            list.innerHTML = comments.map(comment => `
+                <div class="comment-item">
+                    <div class="comment-header">
+                        <span><strong>${comment.username}</strong></span>
+                        <span>${comment.timestamp}</span>
+                    </div>
+                    <div class="comment-text">${comment.comment}</div>
+                </div>
+            `).join('');
+        }
+
+        function populateHistory(history) {
+            const list = document.getElementById('historyList');
+            if (history.length === 0) {
+                list.innerHTML = '<div class="history-item"><span class="history-timestamp">No recent history available</span></div>';
+                return;
+            }
+            
+            list.innerHTML = history.map(item => `
+                <div class="history-item">
+                    <span class="history-timestamp">${item.timestamp}</span>
+                    <span class="history-status status-${item.status.toLowerCase()}">${item.status}</span>
+                    <span class="history-latency">${item.latency}</span>
+                </div>
+            `).join('');
+        }
+
+        function addComment() {
+            console.log('addComment function called');
+            const commentInput = document.getElementById('commentInput');
+            
+            if (!commentInput) {
+                console.error('Comment input element not found!');
+                alert('Error: Input element not found');
+                return;
+            }
+            
+            const comment = commentInput.value.trim();
+            
+            console.log('Comment:', comment, 'Current IP:', currentDeviceIp);
+            
+            if (!comment) {
+                alert('Please enter a comment');
+                return;
+            }
+            
+            if (comment.length > 500) {
+                alert('Comment is too long. Maximum 500 characters allowed.');
+                return;
+            }
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            // Disable button to prevent double submission
+            const submitBtn = document.querySelector('.comment-submit');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Adding...';
+            submitBtn.disabled = true;
+            
+            console.log('Sending comment to API...');
+            fetch('/api/add_comment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: currentDeviceIp,
+                    comment: comment
+                })
+            })
+            .then(response => {
+                console.log('Add comment response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Add comment response data:', data);
+                if (data.success) {
+                    commentInput.value = '';
+                    // Show success feedback
+                    submitBtn.textContent = 'Added!';
+                    setTimeout(() => {
+                        submitBtn.textContent = originalText;
+                        submitBtn.disabled = false;
+                    }, 1000);
+                    // Reload device details to show new comment
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert('Error adding comment: ' + data.error);
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Error adding comment:', error);
+                alert('Failed to add comment. Please check your connection.');
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+
+        function acknowledgeDevice(status) {
+            console.log('acknowledgeDevice called with status:', status);
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            let comment = '';
+            
+            console.log('Current IP:', currentDeviceIp);
+            
+            // Use mobile-friendly prompts
+            if (status === 'ack') {
+                comment = prompt('Acknowledgment note (optional):') || '';
+            } else if (status === 'assigned') {
+                comment = prompt('Assignment note (optional):') || '';
+            } else if (status === 'unassigned') {
+                if (!confirm('Are you sure you want to unassign this device?')) {
+                    return;
+                }
+            }
+            
+            // Disable buttons during request
+            const buttons = document.querySelectorAll('.ack-btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            console.log('Sending acknowledgment to API...');
+            fetch('/api/acknowledge_device', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: currentDeviceIp,
+                    status: status,
+                    comment: comment
+                })
+            })
+            .then(response => {
+                console.log('Acknowledge device response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Acknowledge device response data:', data);
+                if (data.success) {
+                    // Show success feedback
+                    const statusText = status === 'ack' ? 'acknowledged' : 
+                                     status === 'assigned' ? 'assigned' : 'unassigned';
+                    
+                    // Reload device details to show new status
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert('Error updating status: ' + data.error);
+                    buttons.forEach(btn => btn.disabled = false);
+                }
+            })
+            .catch(error => {
+                console.error('Error updating status:', error);
+                alert('Failed to update status. Please check your connection.');
+                buttons.forEach(btn => btn.disabled = false);
+            });
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('deviceDetailsModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDeviceDetails();
+            }
+        });
+        
+        function showAssignModal() {
+            // For mobile, use a simple prompt for now
+            // In a full implementation, you'd want a proper mobile modal
+            const users = {{ users|tojson }};
+            const activeUsers = users.filter(u => u.is_active && u.role === 'user');
+            
+            if (activeUsers.length === 0) {
+                alert('No active users available for assignment');
+                return;
+            }
+            
+            let userOptions = activeUsers.map((u, i) => `${i + 1}. ${u.username} (${u.email})`).join('\n');
+            let selection = prompt(`Select user to assign device ${currentDeviceIp} to:\n\n${userOptions}\n\nEnter number (1-${activeUsers.length}):`);
+            
+            if (selection) {
+                const userIndex = parseInt(selection) - 1;
+                if (userIndex >= 0 && userIndex < activeUsers.length) {
+                    const selectedUser = activeUsers[userIndex];
+                    const comment = prompt('Assignment comment (optional):') || '';
+                    
+                    // Perform assignment
+                    fetch('/api/assign_device', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            device_ip: currentDeviceIp,
+                            user_id: selectedUser.id,
+                            comment: comment
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(data.message);
+                            showDeviceDetails(currentDeviceIp); // Refresh device details
+                        } else {
+                            alert('Error: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error assigning device');
+                    });
+                } else {
+                    alert('Invalid selection');
+                }
+            }
+        }
+        
+        function showMobileAssignModal(deviceIp, deviceName, location) {
+            // For mobile, use a simple prompt for now
+            const users = {{ users|tojson }};
+            const activeUsers = users.filter(u => u.is_active && u.role === 'user');
+            
+            if (activeUsers.length === 0) {
+                alert('No active users available for assignment');
+                return;
+            }
+            
+            let userOptions = activeUsers.map((u, i) => `${i + 1}. ${u.username} (${u.email})`).join('\n');
+            let selection = prompt(`Assign device ${deviceIp} (${deviceName}) to:\n\n${userOptions}\n\nEnter number (1-${activeUsers.length}):`);
+            
+            if (selection) {
+                const userIndex = parseInt(selection) - 1;
+                if (userIndex >= 0 && userIndex < activeUsers.length) {
+                    const selectedUser = activeUsers[userIndex];
+                    const comment = prompt('Assignment comment (optional):') || '';
+                    
+                    // Perform assignment
+                    fetch('/api/assign_device', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            device_ip: deviceIp,
+                            user_id: selectedUser.id,
+                            comment: comment
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(data.message);
+                        } else {
+                            alert('Error: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error assigning device');
+                    });
+                } else {
+                    alert('Invalid selection');
+                }
+            }
+        }
+        
+        function forcePing() {
+            console.log('forcePing called for IP:', currentDeviceIp);
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            if (!confirm(`Perform manual ping test on SM IP ${currentDeviceIp}?`)) {
+                return;
+            }
+            
+            performPing(currentDeviceIp, 'SM');
+        }
+        
+        function forcePingAP() {
+            console.log('forcePingAP called for current device');
+            
+            if (!currentDeviceIp) {
+                alert('Error: No device selected');
+                return;
+            }
+            
+            // Get AP IP from current device data
+            let apIp = null;
+            for (let device of devices) {
+                if (device['SM IP'] === currentDeviceIp) {
+                    apIp = device['AP IP'];
+                    break;
+                }
+            }
+            
+            if (!apIp || apIp === 'N/A') {
+                alert('AP IP not available for this device');
+                return;
+            }
+            
+            if (!confirm(`Perform manual ping test on AP IP ${apIp}?`)) {
+                return;
+            }
+            
+            performPing(apIp, 'AP');
+        }
+        
+        function performPing(ip, type) {
+            // Disable force ping buttons during request
+            const forcePingBtns = document.querySelectorAll('.ack-btn.force-ping');
+            const originalTexts = [];
+            forcePingBtns.forEach((btn, index) => {
+                originalTexts[index] = btn.textContent;
+                btn.textContent = 'Pinging...';
+                btn.disabled = true;
+            });
+            
+            console.log('Performing force ping for:', ip, 'Type:', type);
+            
+            fetch('/api/force_ping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: ip,
+                    ping_type: type
+                })
+            })
+            .then(response => {
+                console.log('Force ping response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Force ping response data:', data);
+                if (data.success) {
+                    const statusIcon = data.status === 'Reachable' ? '✅' : 
+                                     data.status === 'Degraded' ? '⚠️' : '❌';
+                    
+                    alert(`${statusIcon} Manual ${type} Ping Result:\n\n` +
+                          `${type} IP: ${ip}\n` +
+                          `Status: ${data.status}\n` +
+                          `Latency: ${data.latency}\n` +
+                          `Time: ${data.timestamp}\n\n` +
+                          `Result logged and added to comments.`);
+                    
+                    // Reload device details to show updated history
+                    showDeviceDetails(currentDeviceIp);
+                } else {
+                    alert(`${type} ping failed: ` + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error performing force ping:', error);
+                alert(`Failed to perform ${type} ping. Please check your connection.`);
+            })
+            .finally(() => {
+                forcePingBtns.forEach((btn, index) => {
+                    btn.textContent = originalTexts[index];
+                    btn.disabled = false;
+                });
+            });
+        }
+
+        // Add swipe-to-close functionality for mobile
+        let touchStartY = 0;
+        let touchEndY = 0;
+
+        document.getElementById('deviceDetailsModal').addEventListener('touchstart', function(e) {
+            touchStartY = e.changedTouches[0].screenY;
+        });
+
+        document.getElementById('deviceDetailsModal').addEventListener('touchend', function(e) {
+            touchEndY = e.changedTouches[0].screenY;
+            const swipeDistance = touchStartY - touchEndY;
+            
+            // If swiping down more than 100px and target is the modal background
+            if (swipeDistance < -100 && e.target === this) {
+                closeDeviceDetails();
+            }
+        });
+    </script>
+</body>
+</html>
