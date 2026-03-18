@@ -7289,5 +7289,6 @@ def api_snmp_test():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
+    init_snmp_db()  # ensure SNMP tables exist before serving requests
     start_periodic_update()
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
