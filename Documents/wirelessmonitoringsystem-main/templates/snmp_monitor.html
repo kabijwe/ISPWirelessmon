@@ -83,7 +83,15 @@
         .alert-modal p { color: #555; margin-bottom: 20px; font-size: 14px; }
         .alert-modal .modal-actions { justify-content: center; }
 
-        @media (max-width: 768px) {
+        /* SM devices sub-table */
+        .sm-panel { margin-top: 15px; }
+        .sm-panel h4 { color: #1a73e8; font-size: 14px; margin-bottom: 10px; }
+        .sm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .sm-table th { background: #e8f0fe; color: #1a73e8; padding: 7px 10px; text-align: left; }
+        .sm-table td { padding: 6px 10px; border-bottom: 1px solid #f0f2f5; }
+        .sm-status-up { color: #34a853; font-weight: 600; }
+        .sm-status-down { color: #ea4335; font-weight: 600; }
+        .sm-status-deg { color: #fbbc04; font-weight: 600; }
             .summary-cards { grid-template-columns: repeat(2, 1fr); }
             table { font-size: 12px; }
             thead th, tbody td { padding: 8px 10px; }
@@ -165,46 +173,73 @@
     <div class="modal">
         <h3 id="modalTitle">Add SNMP Device</h3>
         <input type="hidden" id="editDeviceId">
-        <div class="form-group">
-            <label>Device Name *</label>
-            <input type="text" id="fName" placeholder="e.g. Core Switch - Martadi">
+
+        <!-- IP lookup banner -->
+        <div id="lookupBanner" style="display:none; background:#e8f0fe; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#1a73e8;"></div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group" style="grid-column:1/-1">
+                <label>IP Address * <span style="font-size:11px;color:#888;">(auto-fills from sheet on blur)</span></label>
+                <input type="text" id="fIp" placeholder="192.168.1.1" onblur="lookupIp()">
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+                <label>Device Name *</label>
+                <input type="text" id="fName" placeholder="e.g. AP Wagleek">
+            </div>
+            <div class="form-group">
+                <label>SNMP Community *</label>
+                <input type="text" id="fCommunity" value="public">
+            </div>
+            <div class="form-group">
+                <label>SNMP Port</label>
+                <input type="number" id="fPort" value="161" min="1" max="65535">
+            </div>
+            <div class="form-group">
+                <label>Device Type *</label>
+                <select id="fType">
+                    <option value="raisecom">Raisecom Switch</option>
+                    <option value="edgecore">Edgecore Switch</option>
+                    <option value="epmp">Cambium ePMP</option>
+                    <option value="powerbeam">Ubiquiti PowerBeam</option>
+                    <option value="generic">Generic / Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>SNMP Version</label>
+                <select id="fVersion">
+                    <option value="2c">v2c</option>
+                    <option value="1">v1</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Location</label>
+                <input type="text" id="fLocation" placeholder="e.g. Martadi POP">
+            </div>
+            <div class="form-group">
+                <label>Model</label>
+                <input type="text" id="fModel" placeholder="e.g. ePMP 1000">
+            </div>
+            <div class="form-group">
+                <label>MAC Address</label>
+                <input type="text" id="fMac" placeholder="AA:BB:CC:DD:EE:FF">
+            </div>
+            <div class="form-group">
+                <label>Firmware</label>
+                <input type="text" id="fFirmware" placeholder="e.g. 4.6.1">
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+                <label>Description</label>
+                <input type="text" id="fDesc" placeholder="Optional notes">
+            </div>
+            <div class="form-group">
+                <label>Active</label>
+                <select id="fActive">
+                    <option value="1">Yes</option>
+                    <option value="0">No</option>
+                </select>
+            </div>
         </div>
-        <div class="form-group">
-            <label>IP Address *</label>
-            <input type="text" id="fIp" placeholder="192.168.1.1">
-        </div>
-        <div class="form-group">
-            <label>SNMP Community String *</label>
-            <input type="text" id="fCommunity" value="public" placeholder="public">
-        </div>
-        <div class="form-group">
-            <label>Device Type *</label>
-            <select id="fType">
-                <option value="raisecom">Raisecom Switch</option>
-                <option value="edgecore">Edgecore Switch</option>
-                <option value="epmp">Cambium ePMP</option>
-                <option value="powerbeam">Ubiquiti PowerBeam</option>
-                <option value="generic">Generic / Other</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Location</label>
-            <input type="text" id="fLocation" placeholder="e.g. Martadi POP">
-        </div>
-        <div class="form-group">
-            <label>SNMP Version</label>
-            <select id="fVersion">
-                <option value="2c">v2c</option>
-                <option value="1">v1</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Active</label>
-            <select id="fActive">
-                <option value="1">Yes</option>
-                <option value="0">No</option>
-            </select>
-        </div>
+
         <div id="testResult" class="test-result"></div>
         <div class="modal-actions">
             <button class="nav-btn" style="background:#888;" onclick="closeModal('deviceModal')">Cancel</button>
@@ -357,6 +392,7 @@ function renderTable(devices) {
                     <span style="margin-left:10px;font-size:13px;color:#888;">Traffic (Mbps) for <strong>${d.name}</strong></span>
                 </div>
                 <div class="chart-container"><canvas id="chart-${d.id}"></canvas></div>
+                ${['epmp','powerbeam'].includes(d.device_type) ? `<div class="sm-panel" id="sm-panel-${d.id}"><div style="color:#888;font-size:13px;">Loading SM devices...</div></div>` : ''}
             </td>
         </tr>`;
     }).join('');
@@ -370,6 +406,47 @@ function toggleChart(deviceId) {
     } else {
         row.style.display = 'table-row';
         loadChart(deviceId, 1, row.querySelector('.chart-btn'));
+        // Load SM devices if AP type
+        const d = allDevices.find(x => x.id === deviceId);
+        if (d && ['epmp','powerbeam'].includes(d.device_type)) {
+            loadSmDevices(deviceId);
+        }
+    }
+}
+
+async function loadSmDevices(deviceId) {
+    const panel = document.getElementById(`sm-panel-${deviceId}`);
+    if (!panel) return;
+    try {
+        const res = await fetch(`/api/snmp/devices/${deviceId}/sm_devices`);
+        const data = await res.json();
+        if (!data.success || !data.sm_devices.length) {
+            panel.innerHTML = '<div style="color:#888;font-size:13px;margin-top:10px;">No SM devices found in sheet for this AP IP.</div>';
+            return;
+        }
+        const rows = data.sm_devices.map((s, i) => {
+            const sc = s.status === 'Reachable' ? 'sm-status-up' : s.status === 'Down' ? 'sm-status-down' : s.status === 'Degraded' ? 'sm-status-deg' : '';
+            const lat = s.latency != null ? s.latency + ' ms' : 'N/A';
+            return `<tr>
+                <td>${i+1}</td>
+                <td><code>${s.sm_ip}</code></td>
+                <td>${s.cid}</td>
+                <td>${s.device_name}</td>
+                <td>${s.location}</td>
+                <td class="${sc}">${s.status}</td>
+                <td>${lat}</td>
+            </tr>`;
+        }).join('');
+        panel.innerHTML = `
+            <div class="sm-panel">
+                <h4>📡 SM Devices under this AP (${data.ap_ip}) — ${data.sm_devices.length} clients</h4>
+                <table class="sm-table">
+                    <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device Name</th><th>Location</th><th>Status</th><th>Latency</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    } catch(e) {
+        panel.innerHTML = '<div style="color:#ea4335;font-size:13px;">Failed to load SM devices.</div>';
     }
 }
 
@@ -420,8 +497,45 @@ function openAddModal() {
     document.getElementById('fLocation').value = '';
     document.getElementById('fVersion').value = '2c';
     document.getElementById('fActive').value = '1';
+    document.getElementById('fPort').value = '161';
+    document.getElementById('fModel').value = '';
+    document.getElementById('fMac').value = '';
+    document.getElementById('fFirmware').value = '';
+    document.getElementById('fDesc').value = '';
     document.getElementById('testResult').style.display = 'none';
+    document.getElementById('lookupBanner').style.display = 'none';
     document.getElementById('deviceModal').classList.add('show');
+}
+
+async function lookupIp() {
+    const ip = document.getElementById('fIp').value.trim();
+    if (!ip) return;
+    const banner = document.getElementById('lookupBanner');
+    try {
+        const res = await fetch(`/api/snmp/lookup_ip?ip=${encodeURIComponent(ip)}`);
+        const data = await res.json();
+        if (!data.success || !data.found) {
+            banner.style.display = 'none';
+            return;
+        }
+        // Auto-populate fields
+        if (!document.getElementById('fName').value) {
+            document.getElementById('fName').value = data.ap_name || data.device_name || '';
+        }
+        if (!document.getElementById('fLocation').value) {
+            document.getElementById('fLocation').value = data.location || '';
+        }
+        // Set device type hint
+        if (data.role === 'ap') {
+            const typeEl = document.getElementById('fType');
+            if (typeEl.value === 'generic') typeEl.value = 'epmp'; // default AP type
+            banner.style.display = 'block';
+            banner.innerHTML = `📡 Found AP in sheet: <strong>${data.ap_name}</strong> — ${data.sm_count} SM client(s) under this AP`;
+        } else if (data.role === 'sm') {
+            banner.style.display = 'block';
+            banner.innerHTML = `📶 Found SM in sheet: <strong>${data.device_name}</strong> (CID: ${data.cid}) — AP: ${data.ap_name} (${data.ap_ip})`;
+        }
+    } catch(e) { /* silent */ }
 }
 
 function openEditModal(deviceId) {
@@ -436,7 +550,13 @@ function openEditModal(deviceId) {
     document.getElementById('fLocation').value = d.location || '';
     document.getElementById('fVersion').value = d.snmp_version || '2c';
     document.getElementById('fActive').value = d.is_active != null ? d.is_active : 1;
+    document.getElementById('fPort').value = d.port || 161;
+    document.getElementById('fModel').value = d.model || '';
+    document.getElementById('fMac').value = d.mac_address || '';
+    document.getElementById('fFirmware').value = d.firmware || '';
+    document.getElementById('fDesc').value = d.description || '';
     document.getElementById('testResult').style.display = 'none';
+    document.getElementById('lookupBanner').style.display = 'none';
     document.getElementById('deviceModal').classList.add('show');
 }
 
@@ -472,7 +592,12 @@ async function saveDevice() {
         name, ip, community, device_type,
         location: document.getElementById('fLocation').value.trim(),
         snmp_version: document.getElementById('fVersion').value,
-        is_active: parseInt(document.getElementById('fActive').value)
+        is_active: parseInt(document.getElementById('fActive').value),
+        port: parseInt(document.getElementById('fPort').value) || 161,
+        model: document.getElementById('fModel').value.trim(),
+        mac_address: document.getElementById('fMac').value.trim(),
+        firmware: document.getElementById('fFirmware').value.trim(),
+        description: document.getElementById('fDesc').value.trim(),
     };
     const editId = document.getElementById('editDeviceId').value;
     try {

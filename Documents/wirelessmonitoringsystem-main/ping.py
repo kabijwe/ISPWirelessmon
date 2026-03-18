@@ -571,7 +571,12 @@ def init_snmp_db():
                          region_id INTEGER,
                          added_by TEXT,
                          created_at TEXT NOT NULL,
-                         is_active INTEGER DEFAULT 1)''')
+                         is_active INTEGER DEFAULT 1,
+                         description TEXT,
+                         model TEXT,
+                         port INTEGER DEFAULT 161,
+                         mac_address TEXT,
+                         firmware TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS snmp_metrics
                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
                          device_id INTEGER NOT NULL,
@@ -587,6 +592,20 @@ def init_snmp_db():
                          FOREIGN KEY (device_id) REFERENCES snmp_devices (id))''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_device ON snmp_metrics (device_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_ts ON snmp_metrics (timestamp)')
+        # Migrate: add new columns if missing
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(snmp_devices)")
+        existing = [r[1] for r in cursor.fetchall()]
+        migrations = [
+            ('description', 'TEXT'),
+            ('model', 'TEXT'),
+            ('port', 'INTEGER DEFAULT 161'),
+            ('mac_address', 'TEXT'),
+            ('firmware', 'TEXT'),
+        ]
+        for col, coltype in migrations:
+            if col not in existing:
+                conn.execute(f'ALTER TABLE snmp_devices ADD COLUMN {col} {coltype}')
         conn.commit()
         conn.close()
         logging.info("SNMP database initialized")
@@ -7137,7 +7156,60 @@ _snmp_thread.start()
 @app.route('/snmp_monitor')
 @login_required
 def snmp_monitor():
-    return render_template('snmp_monitor.html', user=session.get('user', {}))
+    user = get_current_user()
+    return render_template('snmp_monitor.html', user=user)
+
+@app.route('/api/snmp/lookup_ip', methods=['GET'])
+@login_required
+def api_snmp_lookup_ip():
+    """Look up an IP in the main Excel sheet and return AP/SM details"""
+    ip = request.args.get('ip', '').strip()
+    if not ip:
+        return jsonify({'success': False, 'error': 'IP required'}), 400
+    try:
+        if CACHED_DF is None:
+            return jsonify({'success': False, 'error': 'Sheet not loaded'})
+        df = CACHED_DF
+        # Check if it's an AP IP
+        ap_rows = df[df['AP IP'].astype(str).str.strip() == ip]
+        if not ap_rows.empty:
+            ap_name = str(ap_rows.iloc[0]['AP Name']).strip()
+            location = str(ap_rows.iloc[0]['Location']).strip()
+            # Get all SMs under this AP
+            sm_list = []
+            for _, row in ap_rows.iterrows():
+                sm_list.append({
+                    'sm_ip': str(row['SM IP']).strip(),
+                    'cid': str(row['CID']).strip(),
+                    'device_name': str(row['Device Name']).strip(),
+                    'location': str(row['Location']).strip(),
+                })
+            return jsonify({
+                'success': True,
+                'found': True,
+                'role': 'ap',
+                'ap_name': ap_name,
+                'location': location,
+                'sm_count': len(sm_list),
+                'sm_devices': sm_list
+            })
+        # Check if it's a SM IP
+        sm_rows = df[df['SM IP'].astype(str).str.strip() == ip]
+        if not sm_rows.empty:
+            row = sm_rows.iloc[0]
+            return jsonify({
+                'success': True,
+                'found': True,
+                'role': 'sm',
+                'ap_name': str(row['AP Name']).strip(),
+                'ap_ip': str(row['AP IP']).strip(),
+                'device_name': str(row['Device Name']).strip(),
+                'cid': str(row['CID']).strip(),
+                'location': str(row['Location']).strip(),
+            })
+        return jsonify({'success': True, 'found': False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/snmp/devices', methods=['GET'])
 @login_required
@@ -7190,19 +7262,25 @@ def api_snmp_add_device():
         for f in required:
             if not data.get(f):
                 return jsonify({'success': False, 'error': f'{f} is required'}), 400
+        current_user = get_current_user()
+        added_by = current_user['username'] if current_user else 'unknown'
         conn = sqlite3.connect('ping_history.db', timeout=10)
         conn.execute('''INSERT INTO snmp_devices (name, ip, community, snmp_version, device_type,
-                        location, region_id, added_by, created_at, is_active)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)''',
+                        location, region_id, added_by, created_at, is_active,
+                        description, model, port, mac_address, firmware)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)''',
                      (data['name'], data['ip'], data['community'],
                       data.get('snmp_version', '2c'), data['device_type'],
                       data.get('location', ''), data.get('region_id'),
-                      session.get('user', {}).get('username', 'unknown'),
-                      datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                      added_by, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                      data.get('description', ''), data.get('model', ''),
+                      data.get('port', 161), data.get('mac_address', ''),
+                      data.get('firmware', '')))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': 'Device added'})
     except Exception as e:
+        logging.error(f"SNMP add device error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/snmp/devices/<int:device_id>', methods=['PUT'])
@@ -7212,12 +7290,16 @@ def api_snmp_update_device(device_id):
         data = request.get_json()
         conn = sqlite3.connect('ping_history.db', timeout=10)
         conn.execute('''UPDATE snmp_devices SET name=?, ip=?, community=?, snmp_version=?,
-                        device_type=?, location=?, region_id=?, is_active=?
+                        device_type=?, location=?, region_id=?, is_active=?,
+                        description=?, model=?, port=?, mac_address=?, firmware=?
                         WHERE id=?''',
                      (data['name'], data['ip'], data['community'],
                       data.get('snmp_version', '2c'), data['device_type'],
                       data.get('location', ''), data.get('region_id'),
-                      data.get('is_active', 1), device_id))
+                      data.get('is_active', 1),
+                      data.get('description', ''), data.get('model', ''),
+                      data.get('port', 161), data.get('mac_address', ''),
+                      data.get('firmware', ''), device_id))
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': 'Device updated'})
@@ -7234,6 +7316,46 @@ def api_snmp_delete_device(device_id):
         conn.commit()
         conn.close()
         return jsonify({'success': True, 'message': 'Device deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/sm_devices', methods=['GET'])
+@login_required
+def api_snmp_sm_devices(device_id):
+    """Get SM devices under an AP from the main Excel sheet, with live ping status"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        cursor = conn.cursor()
+        cursor.execute("SELECT ip FROM snmp_devices WHERE id = ?", (device_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        ap_ip = row[0].strip()
+        if CACHED_DF is None:
+            return jsonify({'success': True, 'sm_devices': []})
+        df = CACHED_DF
+        ap_rows = df[df['AP IP'].astype(str).str.strip() == ap_ip]
+        sm_list = []
+        for _, r in ap_rows.iterrows():
+            sm_ip = str(r['SM IP']).strip()
+            status = 'Unknown'
+            latency = None
+            with results_lock:
+                for res in results:
+                    if res.get('SM IP', '').strip() == sm_ip:
+                        status = res.get('Status', 'Unknown')
+                        latency = res.get('Latency')
+                        break
+            sm_list.append({
+                'sm_ip': sm_ip,
+                'cid': str(r['CID']).strip(),
+                'device_name': str(r['Device Name']).strip(),
+                'location': str(r['Location']).strip(),
+                'status': status,
+                'latency': latency,
+            })
+        return jsonify({'success': True, 'ap_ip': ap_ip, 'sm_devices': sm_list})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
