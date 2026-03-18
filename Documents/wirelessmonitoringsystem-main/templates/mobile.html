@@ -738,11 +738,17 @@
             <div class="header-user">
                 <div><strong>{{ user.username }}</strong></div>
                 <div class="user-actions">
-                    <a href="{{ url_for('profile') }}" class="user-btn">Profile</a>
-                    {% if user.role == 'admin' %}
-                        <a href="{{ url_for('admin_dashboard') }}" class="user-btn">Admin</a>
+                    <a href="{{ url_for('dashboard') }}" class="user-btn">🏠 Dashboard</a>
+                    <a href="/my_tasks" class="user-btn">📋 Tasks</a>
+                    <a href="/sla" class="user-btn">📊 SLA</a>
+                    {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
+                        <a href="{{ url_for('admin_dashboard') }}" class="user-btn">⚙️ Admin</a>
                     {% endif %}
-                    <a href="{{ url_for('logout') }}" class="user-btn">Logout</a>
+                    <a href="{{ url_for('profile') }}" class="user-btn">
+                        <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #1a73e8; color: white; font-weight: bold; font-size: 11px; margin-right: 5px;">{{ user.username[0]|upper }}</span>
+                        {{ user.username }}
+                    </a>
+                    <a href="{{ url_for('logout') }}" class="user-btn">🚪 Logout</a>
                 </div>
             </div>
         </div>
@@ -835,7 +841,7 @@
                     <button class="ack-btn assign" onclick="acknowledgeDevice('assigned')">
                         Assign to Me
                     </button>
-                    {% if user.role == 'admin' %}
+                    {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                     <button class="ack-btn assign-other" onclick="showAssignModal()">
                         Assign to User
                     </button>

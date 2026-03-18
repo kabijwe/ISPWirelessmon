@@ -209,6 +209,7 @@
             <ul>
                 <li>Username must be at least 3 characters</li>
                 <li>Valid email address required</li>
+                <li>Select your assigned region</li>
                 <li>Password must be at least 6 characters</li>
                 <li>All fields are required</li>
             </ul>
@@ -225,6 +226,14 @@
                 <label for="email">Email Address</label>
                 <input type="email" id="email" name="email" required autocomplete="email">
                 <small>We'll use this for password recovery</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="region">Assigned Region <span style="color: red;">*</span></label>
+                <select id="region" name="region_id" required style="width: 100%; padding: 12px 16px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 16px; background: white; cursor: pointer;">
+                    <option value="">Select your region...</option>
+                </select>
+                <small>Select the region you will be managing</small>
             </div>
             
             <div class="form-group">
@@ -253,6 +262,33 @@
         const passwordStrength = document.getElementById('passwordStrength');
         const passwordMatch = document.getElementById('passwordMatch');
         const signupBtn = document.getElementById('signupBtn');
+        
+        // Load regions on page load
+        function loadRegions() {
+            fetch('/api/regions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.regions) {
+                        const regionSelect = document.getElementById('region');
+                        data.regions.forEach(region => {
+                            const option = document.createElement('option');
+                            option.value = region.id;
+                            option.textContent = region.name;
+                            regionSelect.appendChild(option);
+                        });
+                        console.log('Loaded', data.regions.length, 'regions');
+                    } else {
+                        console.error('Failed to load regions:', data);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading regions:', error);
+                    alert('Failed to load regions. Please refresh the page.');
+                });
+        }
+        
+        // Load regions when page loads
+        window.addEventListener('DOMContentLoaded', loadRegions);
         
         function checkPasswordStrength(password) {
             let strength = 0;
@@ -300,10 +336,17 @@
         document.getElementById('signupForm').addEventListener('submit', function(e) {
             const password = passwordInput.value;
             const confirmPassword = confirmPasswordInput.value;
+            const regionId = document.getElementById('region').value;
             
             if (password !== confirmPassword) {
                 e.preventDefault();
                 alert('Passwords do not match');
+                return;
+            }
+            
+            if (!regionId) {
+                e.preventDefault();
+                alert('Please select a region');
                 return;
             }
             

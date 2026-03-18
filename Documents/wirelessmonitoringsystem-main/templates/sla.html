@@ -248,10 +248,14 @@
             <p>Comprehensive Network Service Level Agreement Monitoring & Analysis</p>
             <div class="nav-buttons">
                 <a href="/" class="nav-btn">🏠 Dashboard</a>
-                {% if user and user.role == 'admin' %}
-                <a href="/admin" class="nav-btn">👤 Admin</a>
+                <a href="/my_tasks" class="nav-btn">📋 Tasks</a>
+                {% if user and user.role in ['admin', 'superadmin', 'regional_admin'] %}
+                <a href="/admin" class="nav-btn">⚙️ Admin</a>
                 {% endif %}
-                <a href="/profile" class="nav-btn">👤 Profile</a>
+                <a href="/profile" class="nav-btn">
+                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,0.3); color: white; font-weight: bold; font-size: 12px; margin-right: 5px;">{{ user.username[0]|upper }}</span>
+                    {{ user.username }}
+                </a>
                 <a href="/logout" class="nav-btn">🚪 Logout</a>
             </div>
         </div>
@@ -260,6 +264,16 @@
         <div class="section">
             <h2>Current SLA Performance</h2>
             <div class="controls">
+                {% if user_role == 'admin' %}
+                <select id="regionFilter" class="date-input" onchange="refreshAllData()" style="min-width: 200px;">
+                    <option value="">All Regions</option>
+                </select>
+                {% else %}
+                <input type="hidden" id="regionFilter" value="{{ user_region_id or '' }}">
+                <div style="padding: 10px 15px; background: #e3f2fd; border-radius: 8px; font-weight: 600; color: #1565c0;">
+                    📍 Viewing: Your Assigned Region
+                </div>
+                {% endif %}
                 <input type="date" id="startDate" class="date-input">
                 <input type="date" id="endDate" class="date-input">
                 <button class="btn" onclick="refreshAllData()">🔄 Refresh Data</button>
@@ -326,6 +340,9 @@
     </div>
 
     <script>
+        const userRole = '{{ user_role }}';
+        const userRegionId = '{{ user_region_id or "" }}';
+        
         document.addEventListener('DOMContentLoaded', function() {
             const endDate = new Date();
             const startDate = new Date();
@@ -336,8 +353,33 @@
             document.getElementById('downtimeStartDate').value = startDate.toISOString().split('T')[0];
             document.getElementById('downtimeEndDate').value = endDate.toISOString().split('T')[0];
             
+            // Load regions for admin users
+            if (userRole === 'admin') {
+                loadRegions();
+            }
+            
             refreshAllData();
         });
+        
+        function loadRegions() {
+            fetch('/api/regions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const select = document.getElementById('regionFilter');
+                        select.innerHTML = '<option value="">All Regions</option>';
+                        data.regions.forEach(region => {
+                            const option = document.createElement('option');
+                            option.value = region.id;
+                            option.textContent = region.name;
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading regions:', error);
+                });
+        }
 
         function refreshAllData() {
             loadSLAMetrics();
@@ -347,8 +389,9 @@
         function loadSLAMetrics() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const regionId = document.getElementById('regionFilter').value;
             
-            console.log('Loading SLA metrics with dates:', startDate, endDate);
+            console.log('Loading SLA metrics with dates:', startDate, endDate, 'region:', regionId);
             
             if (!startDate || !endDate) {
                 alert('Please select both start and end dates');
@@ -363,7 +406,10 @@
             bestList.innerHTML = '<div class="loading">Loading...</div>';
             worstList.innerHTML = '<div class="loading">Loading...</div>';
 
-            const url = `/api/sla_metrics?start_date=${startDate}&end_date=${endDate}`;
+            let url = `/api/sla_metrics?start_date=${startDate}&end_date=${endDate}`;
+            if (regionId) {
+                url += `&region_id=${regionId}`;
+            }
             console.log('Fetching from URL:', url);
 
             // Add timeout to fetch request
@@ -451,10 +497,16 @@
         }
 
         function loadLocationHealth() {
+            const regionId = document.getElementById('regionFilter').value;
             const container = document.getElementById('locationContainer');
             container.innerHTML = '<div class="loading">Loading location data...</div>';
 
-            fetch('/api/location_overview')
+            let url = '/api/location_overview';
+            if (regionId) {
+                url += `?region_id=${regionId}`;
+            }
+
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -585,6 +637,7 @@
         function loadDowntimeData() {
             const startDate = document.getElementById('downtimeStartDate').value;
             const endDate = document.getElementById('downtimeEndDate').value;
+            const regionId = document.getElementById('regionFilter').value;
             
             if (!startDate || !endDate) {
                 alert('Please select both start and end dates');
@@ -594,7 +647,12 @@
             const tbody = document.getElementById('downtimeTableBody');
             tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading downtime data...</td></tr>';
 
-            fetch(`/api/location_downtime?start_date=${startDate}&end_date=${endDate}`)
+            let url = `/api/location_downtime?start_date=${startDate}&end_date=${endDate}`;
+            if (regionId) {
+                url += `&region_id=${regionId}`;
+            }
+
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -630,13 +688,19 @@
         function exportData() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const regionId = document.getElementById('regionFilter').value;
             
             if (!startDate || !endDate) {
                 alert('Please select date range first');
                 return;
             }
 
-            window.location.href = `/api/sla_export?start_date=${startDate}&end_date=${endDate}&format=xlsx`;
+            let url = `/api/sla_export?start_date=${startDate}&end_date=${endDate}&format=xlsx`;
+            if (regionId) {
+                url += `&region_id=${regionId}`;
+            }
+            
+            window.location.href = url;
         }
 
         function getHealthClass(score) {
