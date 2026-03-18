@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SNMP Monitor - Network Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; color: #333; padding: 20px; min-height: 100vh; }
+        .header { background: white; border-radius: 15px; padding: 20px 25px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .header h1 { color: #1a73e8; font-size: 26px; }
+        .nav-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+        .nav-btn { padding: 9px 18px; background: #1a73e8; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; transition: all 0.2s; border: none; cursor: pointer; }
+        .nav-btn:hover { background: #1557b0; transform: translateY(-1px); }
+        .nav-btn.green { background: #34a853; }
+        .nav-btn.green:hover { background: #2d8f47; }
+        .nav-btn.red { background: #ea4335; }
+        .nav-btn.red:hover { background: #c5221f; }
+
+        /* Summary cards */
+        .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .card { background: white; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .card .num { font-size: 36px; font-weight: 700; }
+        .card .lbl { font-size: 13px; color: #666; margin-top: 4px; }
+        .card.total .num { color: #1a73e8; }
+        .card.online .num { color: #34a853; }
+        .card.offline .num { color: #ea4335; }
+        .card.warning .num { color: #fbbc04; }
+
+        /* Controls */
+        .controls { background: white; border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .controls select, .controls input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
+        .controls select:focus, .controls input:focus { border-color: #1a73e8; }
+
+        /* Device table */
+        .table-wrap { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        thead th { background: #1a73e8; color: white; padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; }
+        tbody tr { border-bottom: 1px solid #f0f2f5; transition: background 0.15s; }
+        tbody tr:hover { background: #f8f9ff; }
+        tbody td { padding: 11px 14px; font-size: 13px; vertical-align: middle; }
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .status-online { background: #e6f4ea; color: #34a853; }
+        .status-offline { background: #fce8e6; color: #ea4335; }
+        .status-unknown { background: #f1f3f4; color: #888; }
+        .status-error { background: #fff3e0; color: #f57c00; }
+        .action-btn { padding: 5px 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; margin: 0 2px; }
+        .btn-edit { background: #e8f0fe; color: #1a73e8; }
+        .btn-edit:hover { background: #d2e3fc; }
+        .btn-delete { background: #fce8e6; color: #ea4335; }
+        .btn-delete:hover { background: #f5c6c2; }
+        .btn-chart { background: #e6f4ea; color: #34a853; }
+        .btn-chart:hover { background: #ceead6; }
+
+        /* Expandable chart row */
+        .chart-row { display: none; }
+        .chart-row td { padding: 20px; background: #f8f9ff; }
+        .chart-container { position: relative; height: 220px; }
+        .chart-controls { display: flex; gap: 8px; margin-bottom: 12px; }
+        .chart-btn { padding: 5px 14px; border: 1px solid #1a73e8; border-radius: 6px; background: white; color: #1a73e8; cursor: pointer; font-size: 13px; }
+        .chart-btn.active { background: #1a73e8; color: white; }
+
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: white; border-radius: 15px; padding: 30px; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        .modal h3 { color: #1a73e8; margin-bottom: 20px; font-size: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
+        .form-group input:focus, .form-group select:focus { border-color: #1a73e8; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        .test-result { margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; }
+        .test-ok { background: #e6f4ea; color: #34a853; }
+        .test-fail { background: #fce8e6; color: #ea4335; }
+
+        /* Alert modal */
+        .alert-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; }
+        .alert-modal-overlay.show { display: flex; }
+        .alert-modal { background: white; border-radius: 12px; padding: 28px; width: 380px; max-width: 95vw; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+        .alert-modal h4 { margin-bottom: 12px; font-size: 18px; }
+        .alert-modal p { color: #555; margin-bottom: 20px; font-size: 14px; }
+        .alert-modal .modal-actions { justify-content: center; }
+
+        @media (max-width: 768px) {
+            .summary-cards { grid-template-columns: repeat(2, 1fr); }
+            table { font-size: 12px; }
+            thead th, tbody td { padding: 8px 10px; }
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🔌 SNMP Monitor</h1>
+    <div class="nav-buttons">
+        <a href="/" class="nav-btn">🏠 Dashboard</a>
+        <a href="/my_tasks" class="nav-btn">📋 Tasks</a>
+        <a href="/location_uptime_monitor" class="nav-btn">📍 Location Monitor</a>
+        <a href="/sla" class="nav-btn">📊 SLA</a>
+        {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
+        <a href="/admin" class="nav-btn">🔒 Admin</a>
+        {% endif %}
+        <button class="nav-btn green" onclick="openAddModal()">+ Add Device</button>
+        <button class="nav-btn" onclick="loadDevices()">🔄 Refresh</button>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-cards">
+    <div class="card total"><div class="num" id="cTotal">0</div><div class="lbl">Total Devices</div></div>
+    <div class="card online"><div class="num" id="cOnline">0</div><div class="lbl">Online</div></div>
+    <div class="card offline"><div class="num" id="cOffline">0</div><div class="lbl">Offline</div></div>
+    <div class="card warning"><div class="num" id="cUnknown">0</div><div class="lbl">Unknown</div></div>
+</div>
+
+<!-- Filters -->
+<div class="controls">
+    <select id="filterType" onchange="applyFilters()">
+        <option value="">All Device Types</option>
+        <option value="raisecom">Raisecom Switch</option>
+        <option value="edgecore">Edgecore Switch</option>
+        <option value="epmp">Cambium ePMP</option>
+        <option value="powerbeam">Ubiquiti PowerBeam</option>
+        <option value="generic">Generic</option>
+    </select>
+    <select id="filterStatus" onchange="applyFilters()">
+        <option value="">All Statuses</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+        <option value="unknown">Unknown</option>
+    </select>
+    <input type="text" id="filterSearch" placeholder="🔍 Search name / IP / location..." oninput="applyFilters()" style="min-width:220px;">
+    <span style="margin-left:auto; font-size:13px; color:#888;" id="lastRefresh"></span>
+</div>
+
+<!-- Device Table -->
+<div class="table-wrap">
+    <table id="deviceTable">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>IP Address</th>
+                <th>Type</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Uptime</th>
+                <th>CPU %</th>
+                <th>RX Mbps</th>
+                <th>TX Mbps</th>
+                <th>Signal (dBm)</th>
+                <th>Last Seen</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="deviceTbody">
+            <tr><td colspan="13" style="text-align:center; padding:30px; color:#888;">Loading devices...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Add/Edit Device Modal -->
+<div class="modal-overlay" id="deviceModal">
+    <div class="modal">
+        <h3 id="modalTitle">Add SNMP Device</h3>
+        <input type="hidden" id="editDeviceId">
+        <div class="form-group">
+            <label>Device Name *</label>
+            <input type="text" id="fName" placeholder="e.g. Core Switch - Martadi">
+        </div>
+        <div class="form-group">
+            <label>IP Address *</label>
+            <input type="text" id="fIp" placeholder="192.168.1.1">
+        </div>
+        <div class="form-group">
+            <label>SNMP Community String *</label>
+            <input type="text" id="fCommunity" value="public" placeholder="public">
+        </div>
+        <div class="form-group">
+            <label>Device Type *</label>
+            <select id="fType">
+                <option value="raisecom">Raisecom Switch</option>
+                <option value="edgecore">Edgecore Switch</option>
+                <option value="epmp">Cambium ePMP</option>
+                <option value="powerbeam">Ubiquiti PowerBeam</option>
+                <option value="generic">Generic / Other</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Location</label>
+            <input type="text" id="fLocation" placeholder="e.g. Martadi POP">
+        </div>
+        <div class="form-group">
+            <label>SNMP Version</label>
+            <select id="fVersion">
+                <option value="2c">v2c</option>
+                <option value="1">v1</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Active</label>
+            <select id="fActive">
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+        </div>
+        <div id="testResult" class="test-result"></div>
+        <div class="modal-actions">
+            <button class="nav-btn" style="background:#888;" onclick="closeModal('deviceModal')">Cancel</button>
+            <button class="nav-btn" onclick="testSnmp()">🔍 Test SNMP</button>
+            <button class="nav-btn green" onclick="saveDevice()">💾 Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Modal -->
+<div class="alert-modal-overlay" id="alertModal">
+    <div class="alert-modal">
+        <h4 id="alertTitle">Alert</h4>
+        <p id="alertMsg"></p>
+        <div class="modal-actions">
+            <button class="nav-btn" onclick="closeModal('alertModal')">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="alert-modal-overlay" id="confirmModal">
+    <div class="alert-modal">
+        <h4 id="confirmTitle">Confirm</h4>
+        <p id="confirmMsg"></p>
+        <div class="modal-actions">
+            <button class="nav-btn" style="background:#888;" onclick="closeModal('confirmModal')">Cancel</button>
+            <button class="nav-btn red" id="confirmOkBtn">Delete</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let allDevices = [];
+let chartInstances = {};
+
+function showAlert(title, msg) {
+    document.getElementById('alertTitle').textContent = title;
+    document.getElementById('alertMsg').textContent = msg;
+    document.getElementById('alertModal').classList.add('show');
+}
+
+function showConfirm(title, msg, onOk) {
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMsg').textContent = msg;
+    document.getElementById('confirmOkBtn').onclick = () => { closeModal('confirmModal'); onOk(); };
+    document.getElementById('confirmModal').classList.add('show');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
+
+function formatUptime(seconds) {
+    if (!seconds) return 'N/A';
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function deviceTypeLabel(t) {
+    const map = { raisecom: 'Raisecom', edgecore: 'Edgecore', epmp: 'ePMP', powerbeam: 'PowerBeam', generic: 'Generic' };
+    return map[t] || t;
+}
+
+async function loadDevices() {
+    try {
+        const res = await fetch('/api/snmp/devices');
+        const data = await res.json();
+        if (!data.success) { showAlert('Error', data.error); return; }
+        allDevices = data.devices;
+        updateSummaryCards();
+        applyFilters();
+        document.getElementById('lastRefresh').textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        showAlert('Error', 'Failed to load devices: ' + e.message);
+    }
+}
+
+function updateSummaryCards() {
+    const online = allDevices.filter(d => d.last_status === 'online').length;
+    const offline = allDevices.filter(d => d.last_status === 'offline').length;
+    const unknown = allDevices.filter(d => !d.last_status || d.last_status === 'unknown' || d.last_status === 'error').length;
+    document.getElementById('cTotal').textContent = allDevices.length;
+    document.getElementById('cOnline').textContent = online;
+    document.getElementById('cOffline').textContent = offline;
+    document.getElementById('cUnknown').textContent = unknown;
+}
+
+function applyFilters() {
+    const typeF = document.getElementById('filterType').value;
+    const statusF = document.getElementById('filterStatus').value;
+    const searchF = document.getElementById('filterSearch').value.toLowerCase();
+    const filtered = allDevices.filter(d => {
+        if (typeF && d.device_type !== typeF) return false;
+        if (statusF) {
+            const s = d.last_status || 'unknown';
+            if (statusF === 'unknown' && !['online','offline'].includes(s)) return true;
+            if (statusF !== 'unknown' && s !== statusF) return false;
+        }
+        if (searchF && !`${d.name} ${d.ip} ${d.location || ''}`.toLowerCase().includes(searchF)) return false;
+        return true;
+    });
+    renderTable(filtered);
+}
+
+function renderTable(devices) {
+    const tbody = document.getElementById('deviceTbody');
+    if (!devices.length) {
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;color:#888;">No devices found.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = devices.map((d, i) => {
+        const status = d.last_status || 'unknown';
+        const statusClass = status === 'online' ? 'status-online' : status === 'offline' ? 'status-offline' : status === 'error' ? 'status-error' : 'status-unknown';
+        const rx = d.rx_mbps != null ? d.rx_mbps.toFixed(2) : '-';
+        const tx = d.tx_mbps != null ? d.tx_mbps.toFixed(2) : '-';
+        const cpu = d.cpu_percent != null ? d.cpu_percent.toFixed(1) + '%' : '-';
+        const sig = d.signal_dbm != null ? d.signal_dbm.toFixed(1) : '-';
+        const uptime = formatUptime(d.uptime_seconds);
+        const lastSeen = d.last_seen ? d.last_seen.substring(0, 16) : 'Never';
+        return `<tr id="row-${d.id}">
+            <td>${i + 1}</td>
+            <td><strong>${d.name}</strong></td>
+            <td><code>${d.ip}</code></td>
+            <td>${deviceTypeLabel(d.device_type)}</td>
+            <td>${d.location || '-'}</td>
+            <td><span class="status-badge ${statusClass}">${status.toUpperCase()}</span></td>
+            <td>${uptime}</td>
+            <td>${cpu}</td>
+            <td style="color:${d.rx_mbps > 0 ? '#34a853' : '#333'}">${rx}</td>
+            <td style="color:${d.tx_mbps > 0 ? '#1a73e8' : '#333'}">${tx}</td>
+            <td>${sig !== '-' ? sig + ' dBm' : '-'}</td>
+            <td style="font-size:12px;color:#888;">${lastSeen}</td>
+            <td>
+                <button class="action-btn btn-chart" onclick="toggleChart(${d.id})">📈</button>
+                <button class="action-btn btn-edit" onclick="openEditModal(${d.id})">✏️</button>
+                <button class="action-btn btn-delete" onclick="deleteDevice(${d.id}, '${d.name.replace(/'/g,"\\'")}')">🗑️</button>
+            </td>
+        </tr>
+        <tr class="chart-row" id="chart-row-${d.id}">
+            <td colspan="13">
+                <div class="chart-controls">
+                    <button class="chart-btn active" onclick="loadChart(${d.id}, 1, this)">1h</button>
+                    <button class="chart-btn" onclick="loadChart(${d.id}, 6, this)">6h</button>
+                    <button class="chart-btn" onclick="loadChart(${d.id}, 24, this)">24h</button>
+                    <span style="margin-left:10px;font-size:13px;color:#888;">Traffic (Mbps) for <strong>${d.name}</strong></span>
+                </div>
+                <div class="chart-container"><canvas id="chart-${d.id}"></canvas></div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function toggleChart(deviceId) {
+    const row = document.getElementById(`chart-row-${deviceId}`);
+    if (row.style.display === 'table-row') {
+        row.style.display = 'none';
+        if (chartInstances[deviceId]) { chartInstances[deviceId].destroy(); delete chartInstances[deviceId]; }
+    } else {
+        row.style.display = 'table-row';
+        loadChart(deviceId, 1, row.querySelector('.chart-btn'));
+    }
+}
+
+async function loadChart(deviceId, hours, btn) {
+    // Update active button
+    const row = document.getElementById(`chart-row-${deviceId}`);
+    row.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    try {
+        const res = await fetch(`/api/snmp/devices/${deviceId}/metrics?hours=${hours}`);
+        const data = await res.json();
+        if (!data.success) return;
+
+        const ctx = document.getElementById(`chart-${deviceId}`).getContext('2d');
+        if (chartInstances[deviceId]) chartInstances[deviceId].destroy();
+
+        chartInstances[deviceId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.chart.labels.map(l => l.substring(11, 16)),
+                datasets: [
+                    { label: 'RX Mbps', data: data.chart.rx, borderColor: '#34a853', backgroundColor: 'rgba(52,168,83,0.1)', tension: 0.3, fill: true, pointRadius: 2 },
+                    { label: 'TX Mbps', data: data.chart.tx, borderColor: '#1a73e8', backgroundColor: 'rgba(26,115,232,0.1)', tension: 0.3, fill: true, pointRadius: 2 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 12, font: { size: 11 } } },
+                    y: { beginAtZero: true, title: { display: true, text: 'Mbps' } }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Chart load error:', e);
+    }
+}
+
+function openAddModal() {
+    document.getElementById('modalTitle').textContent = 'Add SNMP Device';
+    document.getElementById('editDeviceId').value = '';
+    document.getElementById('fName').value = '';
+    document.getElementById('fIp').value = '';
+    document.getElementById('fCommunity').value = 'public';
+    document.getElementById('fType').value = 'generic';
+    document.getElementById('fLocation').value = '';
+    document.getElementById('fVersion').value = '2c';
+    document.getElementById('fActive').value = '1';
+    document.getElementById('testResult').style.display = 'none';
+    document.getElementById('deviceModal').classList.add('show');
+}
+
+function openEditModal(deviceId) {
+    const d = allDevices.find(x => x.id === deviceId);
+    if (!d) return;
+    document.getElementById('modalTitle').textContent = 'Edit SNMP Device';
+    document.getElementById('editDeviceId').value = d.id;
+    document.getElementById('fName').value = d.name;
+    document.getElementById('fIp').value = d.ip;
+    document.getElementById('fCommunity').value = d.community;
+    document.getElementById('fType').value = d.device_type;
+    document.getElementById('fLocation').value = d.location || '';
+    document.getElementById('fVersion').value = d.snmp_version || '2c';
+    document.getElementById('fActive').value = d.is_active != null ? d.is_active : 1;
+    document.getElementById('testResult').style.display = 'none';
+    document.getElementById('deviceModal').classList.add('show');
+}
+
+async function testSnmp() {
+    const ip = document.getElementById('fIp').value.trim();
+    const community = document.getElementById('fCommunity').value.trim();
+    if (!ip) { showAlert('Validation', 'Enter an IP address first.'); return; }
+    const resultEl = document.getElementById('testResult');
+    resultEl.style.display = 'block';
+    resultEl.className = 'test-result';
+    resultEl.textContent = '⏳ Testing SNMP connection...';
+    try {
+        const res = await fetch('/api/snmp/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip, community })
+        });
+        const data = await res.json();
+        resultEl.className = 'test-result ' + (data.success ? 'test-ok' : 'test-fail');
+        resultEl.textContent = (data.success ? '✅ ' : '❌ ') + (data.message || data.error);
+    } catch (e) {
+        resultEl.className = 'test-result test-fail';
+        resultEl.textContent = '❌ Request failed: ' + e.message;
+    }
+}
+
+async function saveDevice() {
+    const name = document.getElementById('fName').value.trim();
+    const ip = document.getElementById('fIp').value.trim();
+    const community = document.getElementById('fCommunity').value.trim();
+    const device_type = document.getElementById('fType').value;
+    if (!name || !ip || !community) { showAlert('Validation', 'Name, IP, and Community are required.'); return; }
+    const payload = {
+        name, ip, community, device_type,
+        location: document.getElementById('fLocation').value.trim(),
+        snmp_version: document.getElementById('fVersion').value,
+        is_active: parseInt(document.getElementById('fActive').value)
+    };
+    const editId = document.getElementById('editDeviceId').value;
+    try {
+        const url = editId ? `/api/snmp/devices/${editId}` : '/api/snmp/devices';
+        const method = editId ? 'PUT' : 'POST';
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            closeModal('deviceModal');
+            loadDevices();
+        } else {
+            showAlert('Error', data.error || 'Save failed');
+        }
+    } catch (e) {
+        showAlert('Error', 'Request failed: ' + e.message);
+    }
+}
+
+function deleteDevice(deviceId, name) {
+    showConfirm('Delete Device', `Delete "${name}"? This will also remove all its metrics.`, async () => {
+        try {
+            const res = await fetch(`/api/snmp/devices/${deviceId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) loadDevices();
+            else showAlert('Error', data.error || 'Delete failed');
+        } catch (e) {
+            showAlert('Error', 'Request failed: ' + e.message);
+        }
+    });
+}
+
+// Auto-refresh every 60 seconds
+loadDevices();
+setInterval(loadDevices, 60000);
+</script>
+</body>
+</html>

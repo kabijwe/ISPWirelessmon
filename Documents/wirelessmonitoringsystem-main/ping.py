@@ -31,6 +31,15 @@ import secrets
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+try:
+    from pysnmp.hlapi import (
+        getCmd, nextCmd, SnmpEngine, CommunityData, UdpTransportTarget,
+        ContextData, ObjectType, ObjectIdentity
+    )
+    SNMP_AVAILABLE = True
+except ImportError:
+    SNMP_AVAILABLE = False
+    logging.warning("pysnmp not available - SNMP monitoring disabled")
 
 # Setup logging
 logging.basicConfig(
@@ -543,6 +552,44 @@ def init_regions_locations_db():
     except Exception as e:
         logging.error(f"Regions/locations database init failed: {str(e)}")
 
+def init_snmp_db():
+    """Initialize SNMP monitoring tables"""
+    try:
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False, timeout=30)
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_devices
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         name TEXT NOT NULL,
+                         ip TEXT NOT NULL,
+                         community TEXT DEFAULT 'public',
+                         snmp_version TEXT DEFAULT '2c',
+                         device_type TEXT DEFAULT 'generic',
+                         location TEXT,
+                         region_id INTEGER,
+                         added_by TEXT,
+                         created_at TEXT NOT NULL,
+                         is_active INTEGER DEFAULT 1)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_metrics
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         timestamp TEXT NOT NULL,
+                         status TEXT DEFAULT 'unknown',
+                         uptime_seconds INTEGER,
+                         cpu_percent REAL,
+                         mem_percent REAL,
+                         interfaces_json TEXT,
+                         rx_bytes INTEGER,
+                         tx_bytes INTEGER,
+                         signal_dbm REAL,
+                         FOREIGN KEY (device_id) REFERENCES snmp_devices (id))''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_device ON snmp_metrics (device_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_ts ON snmp_metrics (timestamp)')
+        conn.commit()
+        conn.close()
+        logging.info("SNMP database initialized")
+    except Exception as e:
+        logging.error(f"SNMP database init failed: {str(e)}")
+
+init_snmp_db()
 init_regions_locations_db()
 
 def migrate_locations_from_excel():
@@ -6832,6 +6879,409 @@ def index():
 def test_maintenance():
     """Test page for maintenance mode functionality"""
     return send_file('test_maintenance.html')
+
+# ─────────────────────────────────────────────
+#  SNMP MONITOR  –  OID profiles + polling
+# ─────────────────────────────────────────────
+
+SNMP_OID_PROFILES = {
+    'raisecom': {
+        'cpu':      '1.3.6.1.4.1.8886.1.1.1.1.1.0',
+        'mem':      '1.3.6.1.4.1.8886.1.1.1.1.2.0',
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'edgecore': {
+        'cpu':      '1.3.6.1.4.1.259.10.1.46.1.8.2.1.0',
+        'mem':      '1.3.6.1.4.1.259.10.1.46.1.8.1.1.0',
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'epmp': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'rx_tp':    '1.3.6.1.4.1.17713.21.1.2.18.0',
+        'tx_tp':    '1.3.6.1.4.1.17713.21.1.2.19.0',
+        'signal':   '1.3.6.1.4.1.17713.21.1.2.2.0',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+    },
+    'powerbeam': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'signal':   '1.3.6.1.4.1.41112.1.4.5.1.4.1',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'generic': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    }
+}
+
+# Cache previous byte counters for delta calculation
+_snmp_prev_bytes = {}  # device_id -> (rx, tx, timestamp)
+
+def _snmp_get(ip, community, oid, timeout=3, retries=1):
+    """Single SNMP GET, returns value or None"""
+    if not SNMP_AVAILABLE:
+        return None
+    try:
+        iterator = getCmd(
+            SnmpEngine(),
+            CommunityData(community, mpModel=1),
+            UdpTransportTarget((ip, 161), timeout=timeout, retries=retries),
+            ContextData(),
+            ObjectType(ObjectIdentity(oid))
+        )
+        errorIndication, errorStatus, _, varBinds = next(iterator)
+        if errorIndication or errorStatus:
+            return None
+        return varBinds[0][1]
+    except Exception:
+        return None
+
+def _snmp_walk(ip, community, oid, timeout=3, retries=1):
+    """SNMP WALK, returns list of (oid, value)"""
+    if not SNMP_AVAILABLE:
+        return []
+    results_list = []
+    try:
+        for (errorIndication, errorStatus, _, varBinds) in nextCmd(
+            SnmpEngine(),
+            CommunityData(community, mpModel=1),
+            UdpTransportTarget((ip, 161), timeout=timeout, retries=retries),
+            ContextData(),
+            ObjectType(ObjectIdentity(oid)),
+            lexicographicMode=False
+        ):
+            if errorIndication or errorStatus:
+                break
+            for varBind in varBinds:
+                results_list.append((str(varBind[0]), int(varBind[1]) if varBind[1].hasValue() else 0))
+    except Exception:
+        pass
+    return results_list
+
+def snmp_poll_device(device):
+    """Poll a single SNMP device and store metrics"""
+    device_id = device['id']
+    ip = device['ip']
+    community = device['community']
+    dtype = device['device_type']
+    profile = SNMP_OID_PROFILES.get(dtype, SNMP_OID_PROFILES['generic'])
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    status = 'offline'
+    uptime_seconds = None
+    cpu_percent = None
+    mem_percent = None
+    signal_dbm = None
+    rx_bytes_total = None
+    tx_bytes_total = None
+    interfaces = []
+
+    try:
+        # Uptime check (also serves as reachability test)
+        uptime_val = _snmp_get(ip, community, profile['uptime'])
+        if uptime_val is not None:
+            status = 'online'
+            try:
+                uptime_seconds = int(uptime_val) // 100  # timeticks -> seconds
+            except Exception:
+                uptime_seconds = None
+
+        if status == 'offline':
+            _store_snmp_metric(device_id, now, status, None, None, None, [], None, None, None)
+            return
+
+        # CPU
+        if 'cpu' in profile:
+            cpu_val = _snmp_get(ip, community, profile['cpu'])
+            if cpu_val is not None:
+                try:
+                    cpu_percent = float(cpu_val)
+                except Exception:
+                    pass
+
+        # Memory
+        if 'mem' in profile:
+            mem_val = _snmp_get(ip, community, profile['mem'])
+            if mem_val is not None:
+                try:
+                    mem_percent = float(mem_val)
+                except Exception:
+                    pass
+
+        # Signal (ePMP / PowerBeam)
+        if 'signal' in profile:
+            sig_val = _snmp_get(ip, community, profile['signal'])
+            if sig_val is not None:
+                try:
+                    signal_dbm = float(sig_val)
+                    # ePMP returns in dBm*10
+                    if dtype == 'epmp' and abs(signal_dbm) > 200:
+                        signal_dbm = signal_dbm / 10.0
+                except Exception:
+                    pass
+
+        # Interface traffic via WALK
+        if_in_data = _snmp_walk(ip, community, profile['if_in'])
+        if_out_data = _snmp_walk(ip, community, profile['if_out'])
+        if_names = {}
+        if 'if_name' in profile:
+            for oid_str, val in _snmp_walk(ip, community, profile['if_name']):
+                idx = oid_str.split('.')[-1]
+                if_names[idx] = str(val)
+
+        rx_total = sum(v for _, v in if_in_data)
+        tx_total = sum(v for _, v in if_out_data)
+        rx_bytes_total = rx_total
+        tx_bytes_total = tx_total
+
+        # Build per-interface list
+        for (oid_str, rx_val), (_, tx_val) in zip(if_in_data, if_out_data):
+            idx = oid_str.split('.')[-1]
+            interfaces.append({
+                'index': idx,
+                'name': if_names.get(idx, f'if{idx}'),
+                'rx_bytes': rx_val,
+                'tx_bytes': tx_val
+            })
+
+        # Compute Mbps using delta from previous poll
+        rx_mbps = None
+        tx_mbps = None
+        prev = _snmp_prev_bytes.get(device_id)
+        if prev:
+            prev_rx, prev_tx, prev_ts = prev
+            try:
+                elapsed = (datetime.strptime(now, '%Y-%m-%d %H:%M:%S') -
+                           datetime.strptime(prev_ts, '%Y-%m-%d %H:%M:%S')).total_seconds()
+                if elapsed > 0:
+                    rx_mbps = round(((rx_total - prev_rx) * 8) / elapsed / 1_000_000, 3)
+                    tx_mbps = round(((tx_total - prev_tx) * 8) / elapsed / 1_000_000, 3)
+                    if rx_mbps < 0: rx_mbps = None
+                    if tx_mbps < 0: tx_mbps = None
+            except Exception:
+                pass
+        _snmp_prev_bytes[device_id] = (rx_total, tx_total, now)
+
+        # Store Mbps in interfaces list for convenience
+        for iface in interfaces:
+            iface['rx_mbps'] = rx_mbps
+            iface['tx_mbps'] = tx_mbps
+
+    except Exception as e:
+        logging.error(f"SNMP poll error for {ip}: {e}")
+        status = 'error'
+
+    _store_snmp_metric(device_id, now, status, uptime_seconds, cpu_percent, mem_percent,
+                       interfaces, rx_bytes_total, tx_bytes_total, signal_dbm)
+
+def _store_snmp_metric(device_id, timestamp, status, uptime_seconds, cpu_percent,
+                       mem_percent, interfaces, rx_bytes, tx_bytes, signal_dbm):
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''INSERT INTO snmp_metrics
+                        (device_id, timestamp, status, uptime_seconds, cpu_percent,
+                         mem_percent, interfaces_json, rx_bytes, tx_bytes, signal_dbm)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                     (device_id, timestamp, status, uptime_seconds, cpu_percent,
+                      mem_percent, json.dumps(interfaces), rx_bytes, tx_bytes, signal_dbm))
+        # Keep only last 24h of metrics per device
+        conn.execute('''DELETE FROM snmp_metrics WHERE device_id = ? AND
+                        timestamp < datetime('now', '-24 hours')''', (device_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error storing SNMP metric: {e}")
+
+def snmp_polling_loop():
+    """Background thread: poll all active SNMP devices every 60 seconds"""
+    logging.info("SNMP polling thread started")
+    while True:
+        try:
+            conn = sqlite3.connect('ping_history.db', timeout=10)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, ip, community, snmp_version, device_type FROM snmp_devices WHERE is_active = 1")
+            devices = [{'id': r[0], 'name': r[1], 'ip': r[2], 'community': r[3],
+                        'snmp_version': r[4], 'device_type': r[5]} for r in cursor.fetchall()]
+            conn.close()
+
+            for device in devices:
+                try:
+                    snmp_poll_device(device)
+                except Exception as e:
+                    logging.error(f"Poll error for device {device['id']}: {e}")
+        except Exception as e:
+            logging.error(f"SNMP polling loop error: {e}")
+        time.sleep(60)
+
+# Start SNMP polling thread
+_snmp_thread = Thread(target=snmp_polling_loop, daemon=True)
+_snmp_thread.start()
+
+# ─── SNMP API routes ───────────────────────────────────────────────────────────
+
+@app.route('/snmp_monitor')
+@login_required
+def snmp_monitor():
+    return render_template('snmp_monitor.html', user=session.get('user', {}))
+
+@app.route('/api/snmp/devices', methods=['GET'])
+@login_required
+def api_snmp_devices():
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT d.*, 
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_status,
+                          (SELECT timestamp FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_seen,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds,
+                          (SELECT cpu_percent FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as cpu_percent,
+                          (SELECT mem_percent FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as mem_percent,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT interfaces_json FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as interfaces_json
+                          FROM snmp_devices d ORDER BY d.name''')
+        rows = cursor.fetchall()
+        conn.close()
+        devices = []
+        for r in rows:
+            d = dict(r)
+            try:
+                ifaces = json.loads(d.get('interfaces_json') or '[]')
+                rx_mbps = ifaces[0].get('rx_mbps') if ifaces else None
+                tx_mbps = ifaces[0].get('tx_mbps') if ifaces else None
+            except Exception:
+                rx_mbps = tx_mbps = None
+            d['rx_mbps'] = rx_mbps
+            d['tx_mbps'] = tx_mbps
+            d.pop('interfaces_json', None)
+            devices.append(d)
+        return jsonify({'success': True, 'devices': devices})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices', methods=['POST'])
+@login_required
+def api_snmp_add_device():
+    try:
+        data = request.get_json()
+        required = ['name', 'ip', 'community', 'device_type']
+        for f in required:
+            if not data.get(f):
+                return jsonify({'success': False, 'error': f'{f} is required'}), 400
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''INSERT INTO snmp_devices (name, ip, community, snmp_version, device_type,
+                        location, region_id, added_by, created_at, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)''',
+                     (data['name'], data['ip'], data['community'],
+                      data.get('snmp_version', '2c'), data['device_type'],
+                      data.get('location', ''), data.get('region_id'),
+                      session.get('user', {}).get('username', 'unknown'),
+                      datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device added'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>', methods=['PUT'])
+@login_required
+def api_snmp_update_device(device_id):
+    try:
+        data = request.get_json()
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''UPDATE snmp_devices SET name=?, ip=?, community=?, snmp_version=?,
+                        device_type=?, location=?, region_id=?, is_active=?
+                        WHERE id=?''',
+                     (data['name'], data['ip'], data['community'],
+                      data.get('snmp_version', '2c'), data['device_type'],
+                      data.get('location', ''), data.get('region_id'),
+                      data.get('is_active', 1), device_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device updated'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>', methods=['DELETE'])
+@login_required
+def api_snmp_delete_device(device_id):
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('DELETE FROM snmp_metrics WHERE device_id = ?', (device_id,))
+        conn.execute('DELETE FROM snmp_devices WHERE id = ?', (device_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/metrics', methods=['GET'])
+@login_required
+def api_snmp_device_metrics(device_id):
+    try:
+        hours = int(request.args.get('hours', 1))
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT timestamp, status, uptime_seconds, cpu_percent, mem_percent,
+                          interfaces_json, rx_bytes, tx_bytes, signal_dbm
+                          FROM snmp_metrics WHERE device_id = ?
+                          AND timestamp >= datetime('now', ?)
+                          ORDER BY timestamp ASC''',
+                       (device_id, f'-{hours} hours'))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        # Build chart-friendly series
+        labels = [r['timestamp'] for r in rows]
+        rx_series = []
+        tx_series = []
+        for r in rows:
+            try:
+                ifaces = json.loads(r.get('interfaces_json') or '[]')
+                rx_series.append(ifaces[0].get('rx_mbps') if ifaces else None)
+                tx_series.append(ifaces[0].get('tx_mbps') if ifaces else None)
+            except Exception:
+                rx_series.append(None)
+                tx_series.append(None)
+        return jsonify({'success': True, 'metrics': rows,
+                        'chart': {'labels': labels, 'rx': rx_series, 'tx': tx_series}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/test', methods=['POST'])
+@login_required
+def api_snmp_test():
+    """Quick SNMP reachability test"""
+    try:
+        data = request.get_json()
+        ip = data.get('ip')
+        community = data.get('community', 'public')
+        if not ip:
+            return jsonify({'success': False, 'error': 'IP required'}), 400
+        val = _snmp_get(ip, community, '1.3.6.1.2.1.1.1.0', timeout=3, retries=1)
+        if val is not None:
+            return jsonify({'success': True, 'message': f'SNMP reachable. sysDescr: {str(val)[:200]}'})
+        else:
+            return jsonify({'success': False, 'message': 'No SNMP response. Check IP, community string, and that SNMP is enabled.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     start_periodic_update()
