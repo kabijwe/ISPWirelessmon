@@ -38,8 +38,12 @@ try:
     )
     SNMP_AVAILABLE = True
 except ImportError:
-    SNMP_AVAILABLE = False
-    logging.warning("pysnmp not available - SNMP monitoring disabled")
+    import shutil
+    SNMP_AVAILABLE = bool(shutil.which('snmpget') and shutil.which('snmpwalk'))
+    if SNMP_AVAILABLE:
+        logging.info("Using system snmpget/snmpwalk for SNMP monitoring")
+    else:
+        logging.warning("SNMP tools not available - SNMP monitoring disabled")
 
 # Setup logging
 logging.basicConfig(
@@ -297,11 +301,11 @@ def init_users_db():
         ]
         
         for username, email, password in demo_users:
-            cursor.execute("SELECT COUNT(*) FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT COUNT(*) FROM users WHERE username = ? OR email = ?", (username, email))
             if cursor.fetchone()[0] == 0:
                 password_hash = hash_password(password)
                 cursor.execute("""
-                    INSERT INTO users (username, email, password_hash, role, created_at)
+                    INSERT OR IGNORE INTO users (username, email, password_hash, role, created_at)
                     VALUES (?, ?, ?, 'user', ?)
                 """, (username, email, password_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                 logging.info(f"Created demo user: {username}")
@@ -6928,42 +6932,43 @@ SNMP_OID_PROFILES = {
 _snmp_prev_bytes = {}  # device_id -> (rx, tx, timestamp)
 
 def _snmp_get(ip, community, oid, timeout=3, retries=1):
-    """Single SNMP GET, returns value or None"""
-    if not SNMP_AVAILABLE:
-        return None
+    """Single SNMP GET using system snmpget binary"""
     try:
-        iterator = getCmd(
-            SnmpEngine(),
-            CommunityData(community, mpModel=1),
-            UdpTransportTarget((ip, 161), timeout=timeout, retries=retries),
-            ContextData(),
-            ObjectType(ObjectIdentity(oid))
+        result = subprocess.run(
+            ['snmpget', '-v2c', '-c', community, '-t', str(timeout), '-r', str(retries),
+             '-Oqv', ip, oid],
+            capture_output=True, text=True, timeout=timeout + 2
         )
-        errorIndication, errorStatus, _, varBinds = next(iterator)
-        if errorIndication or errorStatus:
+        val = result.stdout.strip()
+        if result.returncode != 0 or not val or 'No Such' in val or 'Timeout' in val:
             return None
-        return varBinds[0][1]
+        # Strip quotes if string value
+        return val.strip('"')
     except Exception:
         return None
 
 def _snmp_walk(ip, community, oid, timeout=3, retries=1):
-    """SNMP WALK, returns list of (oid, value)"""
-    if not SNMP_AVAILABLE:
-        return []
+    """SNMP WALK using system snmpwalk binary, returns list of (oid, value)"""
     results_list = []
     try:
-        for (errorIndication, errorStatus, _, varBinds) in nextCmd(
-            SnmpEngine(),
-            CommunityData(community, mpModel=1),
-            UdpTransportTarget((ip, 161), timeout=timeout, retries=retries),
-            ContextData(),
-            ObjectType(ObjectIdentity(oid)),
-            lexicographicMode=False
-        ):
-            if errorIndication or errorStatus:
-                break
-            for varBind in varBinds:
-                results_list.append((str(varBind[0]), int(varBind[1]) if varBind[1].hasValue() else 0))
+        result = subprocess.run(
+            ['snmpwalk', '-v2c', '-c', community, '-t', str(timeout), '-r', str(retries),
+             '-Oqn', ip, oid],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return []
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if not line or 'No Such' in line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                oid_str, val_str = parts
+                try:
+                    results_list.append((oid_str, int(val_str)))
+                except ValueError:
+                    results_list.append((oid_str, 0))
     except Exception:
         pass
     return results_list
