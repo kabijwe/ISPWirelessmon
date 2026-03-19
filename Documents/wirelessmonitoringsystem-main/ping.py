@@ -604,6 +604,30 @@ def init_snmp_db():
                          UNIQUE(parent_id, child_id))''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_links_parent ON snmp_device_links (parent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_links_child ON snmp_device_links (child_id)')
+        # Switch ports table
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_switch_ports
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         port_index INTEGER NOT NULL,
+                         if_descr TEXT,
+                         custom_label TEXT,
+                         ap_ip TEXT,
+                         created_at TEXT NOT NULL,
+                         updated_at TEXT NOT NULL,
+                         FOREIGN KEY (device_id) REFERENCES snmp_devices (id),
+                         UNIQUE(device_id, port_index))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_port_metrics
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         port_index INTEGER NOT NULL,
+                         timestamp TEXT NOT NULL,
+                         oper_status INTEGER,
+                         rx_bytes INTEGER,
+                         tx_bytes INTEGER,
+                         rx_mbps REAL,
+                         tx_mbps REAL)''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_port_metrics_dev ON snmp_port_metrics (device_id, port_index)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_port_metrics_ts ON snmp_port_metrics (timestamp)')
         # Migrate: add new columns if missing
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(snmp_devices)")
@@ -7119,6 +7143,9 @@ def snmp_poll_device(device):
 
     _store_snmp_metric(device_id, now, status, uptime_seconds, cpu_percent, mem_percent,
                        interfaces, rx_bytes_total, tx_bytes_total, signal_dbm)
+    # Poll per-port metrics for switches
+    if status == 'online' and dtype in ('raisecom', 'edgecore', 'generic'):
+        _poll_switch_ports(device_id, ip, community, now)
 
 def _store_snmp_metric(device_id, timestamp, status, uptime_seconds, cpu_percent,
                        mem_percent, interfaces, rx_bytes, tx_bytes, signal_dbm):
@@ -7130,13 +7157,97 @@ def _store_snmp_metric(device_id, timestamp, status, uptime_seconds, cpu_percent
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                      (device_id, timestamp, status, uptime_seconds, cpu_percent,
                       mem_percent, json.dumps(interfaces), rx_bytes, tx_bytes, signal_dbm))
-        # Keep only last 24h of metrics per device
         conn.execute('''DELETE FROM snmp_metrics WHERE device_id = ? AND
                         timestamp < datetime('now', '-24 hours')''', (device_id,))
         conn.commit()
         conn.close()
     except Exception as e:
         logging.error(f"Error storing SNMP metric: {e}")
+
+# Cache previous port byte counters: (device_id, port_index) -> (rx, tx, timestamp)
+_port_prev_bytes = {}
+
+def _poll_switch_ports(device_id, ip, community, now):
+    """Poll all ports on a switch and store per-port metrics with full details."""
+    try:
+        if_descr    = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.2')}
+        if_name     = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.1')}
+        if_speed    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.5')}
+        if_admin    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.7')}
+        if_oper     = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.8')}
+        if_in_err   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.14')}
+        if_out_err  = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.20')}
+        # Use 64-bit HC counters (better accuracy on Gbps ports)
+        if_in_hc    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.10')}
+        if_out_hc   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.12')}
+        # Fallback to 32-bit if HC not available
+        if_in_32    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.10')}
+        if_out_32   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.16')}
+
+        if not if_descr:
+            return
+
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        cursor = conn.cursor()
+        cursor.execute("SELECT port_index, custom_label, ap_ip FROM snmp_switch_ports WHERE device_id=?", (device_id,))
+        existing = {str(r[0]): {'custom_label': r[1], 'ap_ip': r[2]} for r in cursor.fetchall()}
+
+        for idx_str in if_descr:
+            ex = existing.get(idx_str, {})
+            speed = if_speed.get(idx_str, 0)
+            admin = if_admin.get(idx_str, 1)
+            name  = if_name.get(idx_str, '')
+
+            conn.execute('''INSERT INTO snmp_switch_ports
+                            (device_id, port_index, if_descr, if_name, speed_bps, admin_status,
+                             custom_label, ap_ip, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(device_id, port_index) DO UPDATE SET
+                            if_descr=excluded.if_descr, if_name=excluded.if_name,
+                            speed_bps=excluded.speed_bps, admin_status=excluded.admin_status,
+                            updated_at=excluded.updated_at''',
+                         (device_id, int(idx_str), if_descr[idx_str], name, speed, admin,
+                          ex.get('custom_label'), ex.get('ap_ip'), now, now))
+
+            # Use HC counters if available, else 32-bit
+            rx = if_in_hc.get(idx_str) or if_in_32.get(idx_str, 0)
+            tx = if_out_hc.get(idx_str) or if_out_32.get(idx_str, 0)
+            rx_mbps = None
+            tx_mbps = None
+            key = (device_id, idx_str)
+            prev = _port_prev_bytes.get(key)
+            if prev:
+                prev_rx, prev_tx, prev_ts = prev
+                try:
+                    elapsed = (datetime.strptime(now, '%Y-%m-%d %H:%M:%S') -
+                               datetime.strptime(prev_ts, '%Y-%m-%d %H:%M:%S')).total_seconds()
+                    if elapsed > 0:
+                        rx_mbps = round(((rx - prev_rx) * 8) / elapsed / 1_000_000, 4)
+                        tx_mbps = round(((tx - prev_tx) * 8) / elapsed / 1_000_000, 4)
+                        if rx_mbps < 0: rx_mbps = None
+                        if tx_mbps < 0: tx_mbps = None
+                except Exception:
+                    pass
+            _port_prev_bytes[key] = (rx, tx, now)
+
+            conn.execute('''INSERT INTO snmp_port_metrics
+                            (device_id, port_index, timestamp, oper_status,
+                             rx_bytes, tx_bytes, rx_mbps, tx_mbps,
+                             in_errors, out_errors, rx_bytes_hc, tx_bytes_hc)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (device_id, int(idx_str), now,
+                          if_oper.get(idx_str, 2),
+                          if_in_32.get(idx_str, 0), if_out_32.get(idx_str, 0),
+                          rx_mbps, tx_mbps,
+                          if_in_err.get(idx_str, 0), if_out_err.get(idx_str, 0),
+                          if_in_hc.get(idx_str), if_out_hc.get(idx_str)))
+
+        conn.execute('''DELETE FROM snmp_port_metrics WHERE device_id=? AND
+                        timestamp < datetime('now', '-24 hours')''', (device_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Port poll error for device {device_id}: {e}")
 
 def snmp_polling_loop():
     """Background thread: poll all active SNMP devices every 60 seconds"""
@@ -7170,6 +7281,28 @@ _snmp_thread.start()
 def snmp_monitor():
     user = get_current_user()
     return render_template('snmp_monitor.html', user=user)
+
+@app.route('/api/snmp/switches', methods=['GET'])
+@login_required
+def api_snmp_switches():
+    """Return all switch-type devices with their ports for the Add Device modal"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT id, name, ip, device_type, location FROM snmp_devices
+                          WHERE device_type IN ('raisecom','edgecore','generic') AND is_active=1
+                          ORDER BY name''')
+        switches = [dict(r) for r in cursor.fetchall()]
+        for sw in switches:
+            cursor.execute('''SELECT port_index, if_descr, if_name, custom_label, ap_ip
+                              FROM snmp_switch_ports WHERE device_id=? ORDER BY port_index''',
+                           (sw['id'],))
+            sw['ports'] = [dict(p) for p in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'switches': switches})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/snmp/lookup_ip', methods=['GET'])
 @login_required
@@ -7525,6 +7658,97 @@ def api_snmp_unlink_device(device_id, child_id):
         conn.commit()
         conn.close()
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ─── Switch Port routes ────────────────────────────────────────────────────────
+
+@app.route('/api/snmp/devices/<int:device_id>/ports', methods=['GET'])
+@login_required
+def api_snmp_ports(device_id):
+    """Get all ports for a switch with latest metrics and assigned AP info"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT p.port_index, p.if_descr, p.if_name, p.custom_label, p.ap_ip,
+                          p.speed_bps, p.admin_status,
+                          (SELECT oper_status FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as oper_status,
+                          (SELECT rx_mbps FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as rx_mbps,
+                          (SELECT tx_mbps FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as tx_mbps,
+                          (SELECT in_errors FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as in_errors,
+                          (SELECT out_errors FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as out_errors,
+                          (SELECT timestamp FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_seen
+                          FROM snmp_switch_ports p
+                          WHERE p.device_id=?
+                          ORDER BY p.port_index''', (device_id,))
+        ports = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        for port in ports:
+            ap_ip = (port.get('ap_ip') or '').strip()
+            port['ap_name'] = None
+            port['ap_location'] = None
+            port['sm_count'] = 0
+            if ap_ip and CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == ap_ip]
+                if not ap_rows.empty:
+                    port['ap_name'] = str(ap_rows.iloc[0]['AP Name']).strip()
+                    port['ap_location'] = str(ap_rows.iloc[0]['Location']).strip()
+                    port['sm_count'] = len(ap_rows)
+        return jsonify({'success': True, 'ports': ports})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/ports/<int:port_index>', methods=['PUT'])
+@login_required
+def api_snmp_update_port(device_id, port_index):
+    """Update port custom label and assigned AP IP"""
+    try:
+        data = request.get_json()
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, ap_ip=?, updated_at=?
+                        WHERE device_id=? AND port_index=?''',
+                     (data.get('custom_label'), data.get('ap_ip'), now, device_id, port_index))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/ports/<int:port_index>/metrics', methods=['GET'])
+@login_required
+def api_snmp_port_metrics(device_id, port_index):
+    """Historical traffic for a specific port"""
+    try:
+        hours = int(request.args.get('hours', 1))
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT timestamp, oper_status, rx_mbps, tx_mbps
+                          FROM snmp_port_metrics
+                          WHERE device_id=? AND port_index=?
+                          AND timestamp >= datetime('now', ?)
+                          ORDER BY timestamp ASC''',
+                       (device_id, port_index, f'-{hours} hours'))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True,
+                        'chart': {'labels': [r['timestamp'][11:16] for r in rows],
+                                  'rx': [r['rx_mbps'] for r in rows],
+                                  'tx': [r['tx_mbps'] for r in rows]}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

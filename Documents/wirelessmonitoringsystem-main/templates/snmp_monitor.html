@@ -258,6 +258,19 @@
             </div>
         </div>
 
+        <!-- Switch/Port assignment (optional) -->
+        <div class="form-group" style="grid-column:1/-1; border-top:1px solid #eee; padding-top:12px; margin-top:4px;">
+            <label>Assign to Switch Port <span style="font-size:11px;color:#888;">(optional — links this device to a switch port)</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <select id="fSwitchId" onchange="loadSwitchPorts()" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+                    <option value="">— No switch —</option>
+                </select>
+                <select id="fPortIndex" style="flex:1;min-width:160px;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+                    <option value="">— Select port —</option>
+                </select>
+            </div>
+        </div>
+
         <div id="testResult" class="test-result"></div>
         <div class="modal-actions">
             <button class="nav-btn" style="background:#888;" onclick="closeModal('deviceModal')">Cancel</button>
@@ -384,8 +397,8 @@ function renderTable(devices) {
         const lastSeen = d.last_seen ? d.last_seen.substring(0, 16) : 'Never';
         const isSwitch = ['raisecom','edgecore','generic'].includes(d.device_type);
         const isAP = ['epmp','powerbeam'].includes(d.device_type);
-        const expandBtn = `<button class="action-btn btn-chart" onclick="toggleExpand(${d.id}, '${d.device_type}')" title="Expand">📊</button>`;
-        return `<tr id="row-${d.id}">
+        const expandBtn = `<button class="action-btn btn-chart" onclick="event.stopPropagation();toggleExpand(${d.id}, '${d.device_type}')" title="Expand">📊</button>`;
+        return `<tr id="row-${d.id}" style="cursor:pointer;" onclick="toggleExpand(${d.id}, '${d.device_type}')">
             <td>${i + 1}</td>
             <td><strong>${d.name}</strong>${isSwitch ? ` <span style="font-size:11px;background:#e8f0fe;color:#1a73e8;border-radius:10px;padding:1px 7px;margin-left:4px;">Switch</span>` : ''}</td>
             <td><code>${d.ip}</code></td>
@@ -422,8 +435,6 @@ function renderTable(devices) {
         </tr>`;
     }).join('');
 }
-    }).join('');
-}
 
 function toggleExpand(deviceId, deviceType) {
     const row = document.getElementById(`chart-row-${deviceId}`);
@@ -446,48 +457,235 @@ function toggleExpand(deviceId, deviceType) {
 async function loadHierPanel(switchId) {
     const panel = document.getElementById(`hier-panel-${switchId}`);
     if (!panel) return;
+    panel.innerHTML = '<div style="color:#888;font-size:13px;padding:10px;">⏳ Loading ports...</div>';
     try {
-        const res = await fetch(`/api/snmp/devices/${switchId}/children`);
+        const res = await fetch(`/api/snmp/devices/${switchId}/ports`);
         const data = await res.json();
-        const children = data.success ? data.children : [];
-        const apCards = children.map(ap => {
-            const sc = ap.last_status === 'online' ? 'status-online' : ap.last_status === 'offline' ? 'status-offline' : 'status-unknown';
-            const sig = ap.signal_dbm != null ? `${ap.signal_dbm.toFixed(1)} dBm` : '';
-            return `<div class="ap-card" id="apcard-${ap.id}" onclick="toggleApSm(${switchId}, ${ap.id}, '${ap.ip}', '${ap.name.replace(/'/g,"\\'")}')">
-                <button class="unlink-btn" onclick="event.stopPropagation(); unlinkAp(${switchId}, ${ap.id}, '${ap.name.replace(/'/g,"\\'")}')">✕</button>
-                <div class="ap-name">📡 ${ap.name}</div>
-                <div class="ap-ip">${ap.ip}</div>
-                <div class="ap-meta">
-                    <span class="status-badge ${sc}" style="font-size:11px;">${(ap.last_status||'unknown').toUpperCase()}</span>
-                    <span class="sm-badge">👥 ${ap.sm_count} SMs</span>
-                    ${sig ? `<span style="font-size:11px;color:#888;">${sig}</span>` : ''}
-                    ${ap.location ? `<span style="font-size:11px;color:#888;">📍 ${ap.location}</span>` : ''}
-                </div>
-                <div id="sm-inline-${ap.id}" class="sm-inline" style="display:none;"></div>
-            </div>`;
+        if (!data.success) { panel.innerHTML = `<div style="color:#ea4335;">Error: ${data.error}</div>`; return; }
+        const ports = data.ports;
+        if (!ports.length) {
+            panel.innerHTML = `<div style="color:#888;font-size:13px;padding:10px;">No port data yet — waiting for first SNMP poll (up to 60s)...</div>`;
+            return;
+        }
+
+        function speedLabel(bps) {
+            if (!bps) return '-';
+            if (bps >= 1000000000) return (bps/1000000000).toFixed(0) + ' Gbps';
+            if (bps >= 1000000) return (bps/1000000).toFixed(0) + ' Mbps';
+            return bps + ' bps';
+        }
+
+        const portRows = ports.map(p => {
+            const up = p.oper_status === 1;
+            const adminUp = p.admin_status === 1;
+            const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${up?'#34a853':'#ea4335'};margin-right:5px;" title="${up?'Link Up':'Link Down'}"></span>`;
+            const rx = p.rx_mbps != null ? p.rx_mbps.toFixed(3) : '-';
+            const tx = p.tx_mbps != null ? p.tx_mbps.toFixed(3) : '-';
+            const portName = p.if_name || p.if_descr || `Port ${p.port_index}`;
+            const label = p.custom_label || '';
+            const apIp = p.ap_ip || '';
+            const apBadge = p.ap_name ? `<div style="margin-top:3px;">
+                <span style="font-size:11px;background:#e8f0fe;color:#1a73e8;border-radius:8px;padding:2px 7px;cursor:pointer;"
+                    onclick="togglePortSm(${switchId},${p.port_index},'${p.ap_ip}')">
+                    📡 ${p.ap_name} &nbsp;·&nbsp; 👥 ${p.sm_count} SMs &nbsp;·&nbsp; 📍 ${p.ap_location||''}
+                </span></div>` : '';
+            const errBadge = (p.in_errors > 0 || p.out_errors > 0) ?
+                `<span style="font-size:11px;color:#ea4335;margin-left:6px;">⚠ ${p.in_errors} in / ${p.out_errors} out errors</span>` : '';
+
+            return `
+            <tr style="border-bottom:1px solid #f0f2f5;">
+                <td style="padding:10px 12px;font-weight:600;white-space:nowrap;">
+                    ${dot}<span style="font-family:monospace;">${portName}</span>
+                    <div style="font-size:11px;color:#888;margin-top:2px;">${p.if_descr||''}</div>
+                </td>
+                <td style="padding:10px 12px;">
+                    <input type="text" value="${label}" placeholder="e.g. AP Wagleek uplink"
+                        id="lbl-${switchId}-${p.port_index}"
+                        style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:160px;"
+                        onblur="savePortLabel(${switchId},${p.port_index})">
+                </td>
+                <td style="padding:10px 12px;">
+                    <input type="text" value="${apIp}" placeholder="AP IP..."
+                        id="apip-${switchId}-${p.port_index}"
+                        style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:130px;font-family:monospace;"
+                        onblur="savePortApIp(${switchId},${p.port_index})">
+                    ${apBadge}
+                </td>
+                <td style="padding:10px 12px;font-size:12px;color:#888;">${speedLabel(p.speed_bps)}</td>
+                <td style="padding:10px 12px;">
+                    <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${adminUp?'#e6f4ea':'#fce8e6'};color:${adminUp?'#34a853':'#ea4335'};">
+                        ${adminUp?'Enabled':'Disabled'}
+                    </span>
+                </td>
+                <td style="padding:10px 12px;">
+                    <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${up?'#e6f4ea':'#fce8e6'};color:${up?'#34a853':'#ea4335'};">
+                        ${up?'UP':'DOWN'}
+                    </span>
+                </td>
+                <td style="padding:10px 12px;color:#34a853;font-weight:600;font-size:13px;">${rx}</td>
+                <td style="padding:10px 12px;color:#1a73e8;font-weight:600;font-size:13px;">${tx}</td>
+                <td style="padding:10px 12px;font-size:12px;color:#888;">${errBadge || '0 errors'}</td>
+                <td style="padding:10px 12px;">
+                    <button class="action-btn btn-chart" onclick="togglePortChart(${switchId},${p.port_index})" title="Traffic Graph">📈</button>
+                </td>
+            </tr>
+            <tr id="portchart-row-${switchId}-${p.port_index}" style="display:none;background:#f0f4ff;">
+                <td colspan="10" style="padding:12px 20px;">
+                    <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                        <button class="chart-btn active" onclick="loadPortChart(${switchId},${p.port_index},1,this)">1h</button>
+                        <button class="chart-btn" onclick="loadPortChart(${switchId},${p.port_index},6,this)">6h</button>
+                        <button class="chart-btn" onclick="loadPortChart(${switchId},${p.port_index},24,this)">24h</button>
+                        <span style="font-size:12px;color:#888;margin-left:8px;">Traffic on <strong>${portName}</strong>${label?' — '+label:''}</span>
+                    </div>
+                    <div style="height:160px;"><canvas id="portchart-${switchId}-${p.port_index}"></canvas></div>
+                    <div id="sm-port-${switchId}-${p.port_index}" style="margin-top:8px;"></div>
+                </td>
+            </tr>`;
         }).join('');
 
+        const upCount = ports.filter(p => p.oper_status === 1).length;
+        const downCount = ports.length - upCount;
+
         panel.innerHTML = `
-            <div class="hier-panel">
-                <h4>🔌 APs / Uplinks under this Switch
-                    <span style="background:#e8f0fe;color:#1a73e8;border-radius:12px;padding:2px 10px;font-size:12px;">${children.length} connected</span>
-                </h4>
-                <div class="ap-grid">${apCards || '<div style="color:#888;font-size:13px;">No APs linked yet. Add one below.</div>'}</div>
-                <div class="add-ap-row">
-                    <input type="text" id="newApIp-${switchId}" placeholder="Enter AP IP (e.g. 192.168.138.14)">
-                    <select id="newApType-${switchId}" style="padding:7px 10px;border:1px solid #ddd;border-radius:7px;font-size:13px;">
-                        <option value="epmp">Cambium ePMP</option>
-                        <option value="powerbeam">Ubiquiti PowerBeam</option>
-                        <option value="raisecom">Raisecom Switch</option>
-                        <option value="edgecore">Edgecore Switch</option>
-                        <option value="generic">Other</option>
-                    </select>
-                    <button class="nav-btn green" style="padding:7px 14px;font-size:13px;" onclick="addApToSwitch(${switchId})">+ Add AP/Uplink</button>
-                </div>
+            <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+                <span style="font-size:14px;font-weight:600;color:#1a73e8;">🔌 ${ports.length} Ports</span>
+                <span style="font-size:12px;background:#e6f4ea;color:#34a853;border-radius:10px;padding:2px 10px;">▲ ${upCount} UP</span>
+                <span style="font-size:12px;background:#fce8e6;color:#ea4335;border-radius:10px;padding:2px 10px;">▼ ${downCount} DOWN</span>
+                <span style="font-size:11px;color:#888;margin-left:auto;">Set AP IP on a port to link its clients · Click 📈 for traffic graph</span>
+            </div>
+            <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#e8f0fe;font-size:12px;">
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Port</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Label</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">AP IP / Device</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Speed</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Admin</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Link</th>
+                        <th style="padding:8px 12px;text-align:left;color:#34a853;">RX Mbps</th>
+                        <th style="padding:8px 12px;text-align:left;color:#1a73e8;">TX Mbps</th>
+                        <th style="padding:8px 12px;text-align:left;color:#555;">Errors</th>
+                        <th style="padding:8px 12px;"></th>
+                    </tr>
+                </thead>
+                <tbody>${portRows}</tbody>
+            </table>
             </div>`;
     } catch(e) {
-        panel.innerHTML = `<div style="color:#ea4335;font-size:13px;">Failed to load hierarchy: ${e.message}</div>`;
+        panel.innerHTML = `<div style="color:#ea4335;font-size:13px;">Failed: ${e.message}</div>`;
     }
+}
+
+async function savePortLabel(deviceId, portIndex) {
+    const val = document.getElementById(`lbl-${deviceId}-${portIndex}`).value.trim();
+    await fetch(`/api/snmp/devices/${deviceId}/ports/${portIndex}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({custom_label: val})
+    });
+}
+
+async function savePortApIp(deviceId, portIndex) {
+    const apIp = document.getElementById(`apip-${deviceId}-${portIndex}`).value.trim();
+    const res = await fetch(`/api/snmp/devices/${deviceId}/ports/${portIndex}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ap_ip: apIp})
+    });
+    const data = await res.json();
+    if (data.success) loadHierPanel(deviceId);
+}
+
+let portChartInstances = {};
+function togglePortChart(deviceId, portIndex) {
+    const row = document.getElementById(`portchart-row-${deviceId}-${portIndex}`);
+    if (row.style.display === 'table-row') {
+        row.style.display = 'none';
+        const key = `${deviceId}-${portIndex}`;
+        if (portChartInstances[key]) { portChartInstances[key].destroy(); delete portChartInstances[key]; }
+    } else {
+        row.style.display = 'table-row';
+        loadPortChart(deviceId, portIndex, 1, row.querySelector('.chart-btn'));
+    }
+}async function loadPortChart(deviceId, portIndex, hours, btn) {
+    const key = `${deviceId}-${portIndex}`;
+    const row = document.getElementById(`portchart-row-${deviceId}-${portIndex}`);
+    row.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    try {
+        const res = await fetch(`/api/snmp/devices/${deviceId}/ports/${portIndex}/metrics?hours=${hours}`);
+        const data = await res.json();
+        if (!data.success) return;
+        const ctx = document.getElementById(`portchart-${deviceId}-${portIndex}`).getContext('2d');
+        if (portChartInstances[key]) portChartInstances[key].destroy();
+        portChartInstances[key] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.chart.labels,
+                datasets: [
+                    {label:'RX Mbps', data: data.chart.rx, borderColor:'#34a853', backgroundColor:'rgba(52,168,83,0.1)', tension:0.3, fill:true, pointRadius:1},
+                    {label:'TX Mbps', data: data.chart.tx, borderColor:'#1a73e8', backgroundColor:'rgba(26,115,232,0.1)', tension:0.3, fill:true, pointRadius:1}
+                ]
+            },
+            options: { responsive:true, maintainAspectRatio:false,
+                plugins:{legend:{position:'top'}},
+                scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}}, y:{beginAtZero:true}} }
+        });
+    } catch(e) { console.error(e); }
+}
+
+async function togglePortSm(deviceId, portIndex, apIp) {
+    const smDiv = document.getElementById(`sm-port-${deviceId}-${portIndex}`);
+    if (!smDiv) return;
+    if (smDiv.dataset.loaded === '1') {
+        smDiv.style.display = smDiv.style.display === 'none' ? 'block' : 'none';
+        return;
+    }
+    smDiv.style.display = 'block';
+    smDiv.innerHTML = '<div style="color:#888;font-size:12px;padding:6px;">Loading SM clients...</div>';
+    // Find device id for this AP IP
+    const apDevice = allDevices.find(d => d.ip === apIp);
+    if (!apDevice) {
+        // Load directly from lookup
+        await loadSmByIp(smDiv, apIp);
+        return;
+    }
+    const res = await fetch(`/api/snmp/devices/${apDevice.id}/sm_devices`);
+    const data = await res.json();
+    renderSmInDiv(smDiv, data);
+}
+
+async function loadSmByIp(smDiv, apIp) {
+    try {
+        const res = await fetch(`/api/snmp/lookup_ip?ip=${encodeURIComponent(apIp)}`);
+        const data = await res.json();
+        if (!data.success || !data.found || data.role !== 'ap') {
+            smDiv.innerHTML = '<div style="color:#888;font-size:12px;">No SM data found for this AP IP.</div>';
+            return;
+        }
+        // Use sm_devices from lookup
+        const rows = (data.sm_devices || []).map((s, i) => {
+            return `<tr><td>${i+1}</td><td><code>${s.sm_ip}</code></td><td style="font-size:11px;">${s.cid}</td><td>${s.device_name}</td><td>-</td><td>-</td></tr>`;
+        }).join('');
+        smDiv.dataset.loaded = '1';
+        smDiv.innerHTML = rows.length ? `<table class="sm-table" style="margin-top:8px;">
+            <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device</th><th>Status</th><th>Latency</th></tr></thead>
+            <tbody>${rows}</tbody></table>` : '<div style="color:#888;font-size:12px;">No SMs found.</div>';
+    } catch(e) { smDiv.innerHTML = `<div style="color:#ea4335;font-size:12px;">${e.message}</div>`; }
+}
+
+function renderSmInDiv(smDiv, data) {
+    if (!data.success || !data.sm_devices.length) {
+        smDiv.innerHTML = '<div style="color:#888;font-size:12px;padding:6px;">No SM clients found.</div>';
+        return;
+    }
+    const rows = data.sm_devices.map((s, i) => {
+        const sc = s.status==='Reachable'?'sm-status-up':s.status==='Down'?'sm-status-down':s.status==='Degraded'?'sm-status-deg':'';
+        return `<tr><td>${i+1}</td><td><code>${s.sm_ip}</code></td><td style="font-size:11px;">${s.cid}</td><td>${s.device_name}</td><td class="${sc}">${s.status}</td><td>${s.latency!=null?s.latency+' ms':'N/A'}</td></tr>`;
+    }).join('');
+    smDiv.dataset.loaded = '1';
+    smDiv.innerHTML = `<div style="font-size:12px;font-weight:600;color:#1a73e8;margin:8px 0 4px;">👥 ${data.sm_devices.length} SM Clients</div>
+        <table class="sm-table"><thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device</th><th>Status</th><th>Latency</th></tr></thead>
+        <tbody>${rows}</tbody></table>`;
 }
 
 async function addApToSwitch(switchId) {
@@ -654,7 +852,40 @@ function openAddModal() {
     document.getElementById('fDesc').value = '';
     document.getElementById('testResult').style.display = 'none';
     document.getElementById('lookupBanner').style.display = 'none';
+    document.getElementById('fSwitchId').value = '';
+    document.getElementById('fPortIndex').innerHTML = '<option value="">— Select port —</option>';
+    loadSwitchesDropdown();
     document.getElementById('deviceModal').classList.add('show');
+}
+
+async function loadSwitchesDropdown() {
+    try {
+        const res = await fetch('/api/snmp/switches');
+        const data = await res.json();
+        if (!data.success) return;
+        const sel = document.getElementById('fSwitchId');
+        sel.innerHTML = '<option value="">— No switch —</option>' +
+            data.switches.map(s => `<option value="${s.id}">${s.name} (${s.ip})</option>`).join('');
+        window._switchData = data.switches;
+    } catch(e) {}
+}
+
+function loadSwitchPorts() {
+    const sel = document.getElementById('fSwitchId');
+    const portSel = document.getElementById('fPortIndex');
+    const switchId = parseInt(sel.value);
+    portSel.innerHTML = '<option value="">— Select port —</option>';
+    if (!switchId || !window._switchData) return;
+    const sw = window._switchData.find(s => s.id === switchId);
+    if (!sw || !sw.ports.length) {
+        portSel.innerHTML = '<option value="">No ports found yet</option>';
+        return;
+    }
+    sw.ports.forEach(p => {
+        const label = p.custom_label ? ` — ${p.custom_label}` : '';
+        const ap = p.ap_ip ? ` [${p.ap_ip}]` : '';
+        portSel.innerHTML += `<option value="${p.port_index}">${p.if_name||p.if_descr||'Port '+p.port_index}${label}${ap}</option>`;
+    });
 }
 
 async function lookupIp() {
@@ -756,6 +987,15 @@ async function saveDevice() {
         const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json();
         if (data.success) {
+            // If switch+port selected, assign this device's IP to that port
+            const switchId = document.getElementById('fSwitchId').value;
+            const portIndex = document.getElementById('fPortIndex').value;
+            if (switchId && portIndex) {
+                await fetch(`/api/snmp/devices/${switchId}/ports/${portIndex}`, {
+                    method: 'PUT', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ap_ip: ip})
+                });
+            }
             closeModal('deviceModal');
             loadDevices();
         } else {
