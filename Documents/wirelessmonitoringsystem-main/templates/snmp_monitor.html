@@ -19,7 +19,7 @@
         .nav-btn.red:hover { background: #c5221f; }
 
         /* Summary cards */
-        .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
         .card { background: white; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .card .num { font-size: 36px; font-weight: 700; }
         .card .lbl { font-size: 13px; color: #666; margin-top: 4px; }
@@ -110,6 +110,7 @@
         .add-ap-row input { padding: 7px 10px; border: 1px solid #ddd; border-radius: 7px; font-size: 13px; flex: 1; min-width: 140px; outline: none; }
         .add-ap-row input:focus { border-color: #1a73e8; }
         .sm-inline { margin-top: 12px; border-top: 2px solid #e8f0fe; padding-top: 12px; }
+        @media (max-width: 600px) {
             .summary-cards { grid-template-columns: repeat(2, 1fr); }
             table { font-size: 12px; }
             thead th, tbody td { padding: 8px 10px; }
@@ -306,6 +307,7 @@
 <script>
 let allDevices = [];
 let chartInstances = {};
+const USER_ROLE = '{{ user.role }}';
 
 function showAlert(title, msg) {
     document.getElementById('alertTitle').textContent = title;
@@ -475,6 +477,8 @@ async function loadHierPanel(switchId) {
             return bps + ' bps';
         }
 
+        const isAdmin = ['admin','superadmin','regional_admin'].includes(USER_ROLE);
+
         const portRows = ports.map(p => {
             const up = p.oper_status === 1;
             const adminUp = p.admin_status === 1;
@@ -484,33 +488,54 @@ async function loadHierPanel(switchId) {
             const portName = p.if_name || p.if_descr || `Port ${p.port_index}`;
             const label = p.custom_label || '';
             const apIp = p.ap_ip || '';
-            const apBadge = p.ap_name ? `<div style="margin-top:3px;">
-                <span style="font-size:11px;background:#e8f0fe;color:#1a73e8;border-radius:8px;padding:2px 7px;cursor:pointer;"
-                    onclick="togglePortSm(${switchId},${p.port_index},'${p.ap_ip}')">
-                    📡 ${p.ap_name} &nbsp;·&nbsp; 👥 ${p.sm_count} SMs &nbsp;·&nbsp; 📍 ${p.ap_location||''}
-                </span></div>` : '';
             const errBadge = (p.in_errors > 0 || p.out_errors > 0) ?
                 `<span style="font-size:11px;color:#ea4335;margin-left:6px;">⚠ ${p.in_errors} in / ${p.out_errors} out errors</span>` : '';
 
+            // AP IP cell: if set → show read-only badge for all; admins get an edit icon too
+            // if not set → admins get input field, users see "—"
+            let apCell;
+            if (apIp) {
+                const apBadge = p.ap_name
+                    ? `<div style="margin-top:4px;">
+                        <span style="font-size:11px;background:#e8f0fe;color:#1a73e8;border-radius:8px;padding:3px 9px;cursor:pointer;display:inline-block;"
+                            onclick="togglePortSm(${switchId},${p.port_index},'${apIp}')">
+                            📡 ${p.ap_name} &nbsp;·&nbsp; 👥 ${p.sm_count} SMs &nbsp;·&nbsp; 📍 ${p.ap_location||''}
+                        </span></div>`
+                    : `<div style="margin-top:4px;font-size:11px;color:#888;">No AP found in sheet for this IP</div>`;
+                const editBtn = isAdmin
+                    ? `<button onclick="unlockApIp(${switchId},${p.port_index},'${apIp}')"
+                            style="margin-left:6px;background:#fff3e0;color:#f57c00;border:none;border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;" title="Edit AP IP (Admin)">✏️</button>`
+                    : '';
+                apCell = `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+                    <code style="font-size:12px;background:#f1f3f4;padding:2px 7px;border-radius:5px;">${apIp}</code>
+                    ${editBtn}
+                    </div>${apBadge}`;
+            } else if (isAdmin) {
+                apCell = `<input type="text" value="" placeholder="Enter AP IP..."
+                    id="apip-${switchId}-${p.port_index}"
+                    style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:140px;font-family:monospace;"
+                    onblur="savePortApIp(${switchId},${p.port_index})">`;
+            } else {
+                apCell = `<span style="color:#bbb;font-size:12px;">—</span>`;
+            }
+
             return `
             <tr style="border-bottom:1px solid #f0f2f5;">
-                <td style="padding:10px 12px;font-weight:600;white-space:nowrap;">
-                    ${dot}<span style="font-family:monospace;">${portName}</span>
-                    <div style="font-size:11px;color:#888;margin-top:2px;">${p.if_descr||''}</div>
+                <td style="padding:10px 12px;font-weight:600;white-space:nowrap;cursor:pointer;"
+                    onclick="togglePortChart(${switchId},${p.port_index})" title="Click to view traffic graph">
+                    ${dot}<span style="font-family:monospace;color:#1a73e8;text-decoration:underline dotted;">${portName}</span>
+                    <div style="font-size:11px;color:#888;margin-top:2px;">${p.if_descr !== p.if_name ? (p.if_descr||'') : ''}</div>
                 </td>
                 <td style="padding:10px 12px;">
-                    <input type="text" value="${label}" placeholder="e.g. AP Wagleek uplink"
-                        id="lbl-${switchId}-${p.port_index}"
-                        style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:160px;"
-                        onblur="savePortLabel(${switchId},${p.port_index})">
+                    ${isAdmin
+                        ? `<input type="text" value="${label}" placeholder="e.g. AP Wagleek uplink"
+                            id="lbl-${switchId}-${p.port_index}"
+                            style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:160px;"
+                            onblur="savePortLabel(${switchId},${p.port_index})">`
+                        : `<span style="font-size:12px;color:#555;">${label || '<span style="color:#bbb;">—</span>'}</span>`
+                    }
                 </td>
-                <td style="padding:10px 12px;">
-                    <input type="text" value="${apIp}" placeholder="AP IP..."
-                        id="apip-${switchId}-${p.port_index}"
-                        style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:12px;width:130px;font-family:monospace;"
-                        onblur="savePortApIp(${switchId},${p.port_index})">
-                    ${apBadge}
-                </td>
+                <td style="padding:10px 12px;">${apCell}</td>
                 <td style="padding:10px 12px;font-size:12px;color:#888;">${speedLabel(p.speed_bps)}</td>
                 <td style="padding:10px 12px;">
                     <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${adminUp?'#e6f4ea':'#fce8e6'};color:${adminUp?'#34a853':'#ea4335'};">
@@ -595,6 +620,26 @@ async function savePortApIp(deviceId, portIndex) {
     if (data.success) loadHierPanel(deviceId);
 }
 
+function unlockApIp(deviceId, portIndex, currentIp) {
+    // Replace the read-only display with an editable input for admins
+    const cell = document.getElementById(`apip-cell-${deviceId}-${portIndex}`);
+    // Find the td containing the apIp code element and replace it
+    const allTds = document.querySelectorAll(`#hier-panel-${deviceId} td`);
+    // Simpler: just reload the panel with a flag — instead, inject input inline
+    const codeEls = document.querySelectorAll(`#hier-panel-${deviceId} code`);
+    for (const el of codeEls) {
+        if (el.textContent.trim() === currentIp) {
+            const td = el.closest('td');
+            td.innerHTML = `<input type="text" value="${currentIp}" id="apip-${deviceId}-${portIndex}"
+                style="border:1px solid #f57c00;border-radius:6px;padding:4px 8px;font-size:12px;width:140px;font-family:monospace;"
+                onblur="savePortApIp(${deviceId},${portIndex})">
+                <div style="font-size:11px;color:#888;margin-top:2px;">Press Tab or click away to save</div>`;
+            td.querySelector('input').focus();
+            break;
+        }
+    }
+}
+
 let portChartInstances = {};
 function togglePortChart(deviceId, portIndex) {
     const row = document.getElementById(`portchart-row-${deviceId}-${portIndex}`);
@@ -634,6 +679,12 @@ function togglePortChart(deviceId, portIndex) {
 }
 
 async function togglePortSm(deviceId, portIndex, apIp) {
+    // Ensure the portchart row is visible (sm div lives inside it)
+    const chartRow = document.getElementById(`portchart-row-${deviceId}-${portIndex}`);
+    if (chartRow && chartRow.style.display !== 'table-row') {
+        chartRow.style.display = 'table-row';
+        loadPortChart(deviceId, portIndex, 1, chartRow.querySelector('.chart-btn'));
+    }
     const smDiv = document.getElementById(`sm-port-${deviceId}-${portIndex}`);
     if (!smDiv) return;
     if (smDiv.dataset.loaded === '1') {

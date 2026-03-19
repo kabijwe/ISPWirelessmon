@@ -7020,10 +7020,11 @@ def _snmp_walk(ip, community, oid, timeout=3, retries=1):
             parts = line.split(None, 1)
             if len(parts) == 2:
                 oid_str, val_str = parts
+                val_str = val_str.strip().strip('"')
                 try:
                     results_list.append((oid_str, int(val_str)))
                 except ValueError:
-                    results_list.append((oid_str, 0))
+                    results_list.append((oid_str, val_str))
     except Exception:
         pass
     return results_list
@@ -7168,8 +7169,9 @@ def _store_snmp_metric(device_id, timestamp, status, uptime_seconds, cpu_percent
 _port_prev_bytes = {}
 
 def _poll_switch_ports(device_id, ip, community, now):
-    """Poll all ports on a switch and store per-port metrics with full details."""
+    """Poll physical ports only (ifType=6 ethernet) on a switch."""
     try:
+        if_type     = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.3')}
         if_descr    = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.2')}
         if_name     = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.1')}
         if_speed    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.5')}
@@ -7177,26 +7179,40 @@ def _poll_switch_ports(device_id, ip, community, now):
         if_oper     = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.8')}
         if_in_err   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.14')}
         if_out_err  = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.20')}
-        # Use 64-bit HC counters (better accuracy on Gbps ports)
         if_in_hc    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.10')}
         if_out_hc   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.12')}
-        # Fallback to 32-bit if HC not available
         if_in_32    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.10')}
         if_out_32   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.16')}
 
         if not if_descr:
             return
 
+        # Only physical ethernet ports (ifType=6)
+        physical_ports = {idx for idx, t in if_type.items() if t == 6}
+        if not physical_ports:
+            # Fallback: exclude ports whose ifDescr starts with "IP"
+            physical_ports = {idx for idx, d in if_descr.items() if not d.upper().startswith('IP')}
+
         conn = sqlite3.connect('ping_history.db', timeout=10)
         cursor = conn.cursor()
         cursor.execute("SELECT port_index, custom_label, ap_ip FROM snmp_switch_ports WHERE device_id=?", (device_id,))
         existing = {str(r[0]): {'custom_label': r[1], 'ap_ip': r[2]} for r in cursor.fetchall()}
 
-        for idx_str in if_descr:
+        # Remove non-physical ports from DB
+        cursor.execute("SELECT port_index FROM snmp_switch_ports WHERE device_id=?", (device_id,))
+        db_ports = {str(r[0]) for r in cursor.fetchall()}
+        for idx_str in db_ports - physical_ports:
+            conn.execute("DELETE FROM snmp_switch_ports WHERE device_id=? AND port_index=?",
+                         (device_id, int(idx_str)))
+            conn.execute("DELETE FROM snmp_port_metrics WHERE device_id=? AND port_index=?",
+                         (device_id, int(idx_str)))
+
+        for idx_str in physical_ports:
             ex = existing.get(idx_str, {})
+            descr = if_descr.get(idx_str, f'Port{idx_str}')
+            name  = if_name.get(idx_str, '')
             speed = if_speed.get(idx_str, 0)
             admin = if_admin.get(idx_str, 1)
-            name  = if_name.get(idx_str, '')
 
             conn.execute('''INSERT INTO snmp_switch_ports
                             (device_id, port_index, if_descr, if_name, speed_bps, admin_status,
@@ -7206,14 +7222,12 @@ def _poll_switch_ports(device_id, ip, community, now):
                             if_descr=excluded.if_descr, if_name=excluded.if_name,
                             speed_bps=excluded.speed_bps, admin_status=excluded.admin_status,
                             updated_at=excluded.updated_at''',
-                         (device_id, int(idx_str), if_descr[idx_str], name, speed, admin,
+                         (device_id, int(idx_str), descr, name, speed, admin,
                           ex.get('custom_label'), ex.get('ap_ip'), now, now))
 
-            # Use HC counters if available, else 32-bit
             rx = if_in_hc.get(idx_str) or if_in_32.get(idx_str, 0)
             tx = if_out_hc.get(idx_str) or if_out_32.get(idx_str, 0)
-            rx_mbps = None
-            tx_mbps = None
+            rx_mbps = tx_mbps = None
             key = (device_id, idx_str)
             prev = _port_prev_bytes.get(key)
             if prev:
@@ -7714,14 +7728,24 @@ def api_snmp_ports(device_id):
 @app.route('/api/snmp/devices/<int:device_id>/ports/<int:port_index>', methods=['PUT'])
 @login_required
 def api_snmp_update_port(device_id, port_index):
-    """Update port custom label and assigned AP IP"""
+    """Update port custom label and/or assigned AP IP"""
     try:
         data = request.get_json()
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn = sqlite3.connect('ping_history.db', timeout=10)
-        conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, ap_ip=?, updated_at=?
-                        WHERE device_id=? AND port_index=?''',
-                     (data.get('custom_label'), data.get('ap_ip'), now, device_id, port_index))
+        # Only update fields that were actually sent
+        if 'custom_label' in data and 'ap_ip' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, ap_ip=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['custom_label'], data['ap_ip'], now, device_id, port_index))
+        elif 'custom_label' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['custom_label'], now, device_id, port_index))
+        elif 'ap_ip' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET ap_ip=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['ap_ip'], now, device_id, port_index))
         conn.commit()
         conn.close()
         return jsonify({'success': True})
