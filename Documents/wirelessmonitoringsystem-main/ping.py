@@ -592,6 +592,18 @@ def init_snmp_db():
                          FOREIGN KEY (device_id) REFERENCES snmp_devices (id))''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_device ON snmp_metrics (device_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_ts ON snmp_metrics (timestamp)')
+        # Device hierarchy links table
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_device_links
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         parent_id INTEGER NOT NULL,
+                         child_id INTEGER NOT NULL,
+                         link_type TEXT DEFAULT 'ap',
+                         created_at TEXT NOT NULL,
+                         FOREIGN KEY (parent_id) REFERENCES snmp_devices (id),
+                         FOREIGN KEY (child_id) REFERENCES snmp_devices (id),
+                         UNIQUE(parent_id, child_id))''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_links_parent ON snmp_device_links (parent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_links_child ON snmp_device_links (child_id)')
         # Migrate: add new columns if missing
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(snmp_devices)")
@@ -7407,6 +7419,112 @@ def api_snmp_test():
             return jsonify({'success': True, 'message': f'SNMP reachable. sysDescr: {str(val)[:200]}'})
         else:
             return jsonify({'success': False, 'message': 'No SNMP response. Check IP, community string, and that SNMP is enabled.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ─── SNMP Hierarchy routes ─────────────────────────────────────────────────────
+
+@app.route('/api/snmp/devices/<int:device_id>/children', methods=['GET'])
+@login_required
+def api_snmp_children(device_id):
+    """Get child APs linked to a switch, enriched with SM counts from Excel"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT d.id, d.name, d.ip, d.device_type, d.location, d.model,
+                          l.link_type,
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_status,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds
+                          FROM snmp_device_links l
+                          JOIN snmp_devices d ON d.id = l.child_id
+                          WHERE l.parent_id = ?
+                          ORDER BY d.name''', (device_id,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        for row in rows:
+            ap_ip = row['ip'].strip()
+            sm_count = 0
+            if CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == ap_ip]
+                sm_count = len(ap_rows)
+            row['sm_count'] = sm_count
+            # Live ping status
+            ping_status = 'Unknown'
+            with results_lock:
+                for res in results:
+                    if res.get('SM IP', '').strip() == ap_ip:
+                        ping_status = res.get('Status', 'Unknown')
+                        break
+            row['ping_status'] = ping_status
+        return jsonify({'success': True, 'children': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/link', methods=['POST'])
+@login_required
+def api_snmp_link_device(device_id):
+    """Link a child AP to a parent switch. Auto-creates child device from Excel if not yet added."""
+    try:
+        data = request.get_json()
+        child_ip = data.get('child_ip', '').strip()
+        link_type = data.get('link_type', 'ap')
+        if not child_ip:
+            return jsonify({'success': False, 'error': 'child_ip required'}), 400
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        cursor = conn.cursor()
+        # Find or auto-create child device
+        cursor.execute("SELECT id FROM snmp_devices WHERE ip = ?", (child_ip,))
+        child_row = cursor.fetchone()
+        if child_row:
+            child_id = child_row[0]
+        else:
+            ap_name = child_ip
+            location = ''
+            device_type = 'epmp'
+            if CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == child_ip]
+                if not ap_rows.empty:
+                    ap_name = str(ap_rows.iloc[0]['AP Name']).strip()
+                    location = str(ap_rows.iloc[0]['Location']).strip()
+            current_user = get_current_user()
+            added_by = current_user['username'] if current_user else 'unknown'
+            cursor.execute('''INSERT INTO snmp_devices
+                              (name, ip, community, snmp_version, device_type, location,
+                               added_by, created_at, is_active)
+                              VALUES (?, ?, ?, '2c', ?, ?, ?, ?, 1)''',
+                           (ap_name, child_ip, data.get('community', 'public'),
+                            device_type, location, added_by,
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            child_id = cursor.lastrowid
+        try:
+            conn.execute('''INSERT INTO snmp_device_links (parent_id, child_id, link_type, created_at)
+                            VALUES (?, ?, ?, ?)''',
+                         (device_id, child_id, link_type,
+                          datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        except sqlite3.IntegrityError:
+            pass  # already linked
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'child_id': child_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/link/<int:child_id>', methods=['DELETE'])
+@login_required
+def api_snmp_unlink_device(device_id, child_id):
+    """Remove a child link"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('DELETE FROM snmp_device_links WHERE parent_id=? AND child_id=?',
+                     (device_id, child_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

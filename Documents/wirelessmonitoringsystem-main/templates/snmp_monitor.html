@@ -92,6 +92,24 @@
         .sm-status-up { color: #34a853; font-weight: 600; }
         .sm-status-down { color: #ea4335; font-weight: 600; }
         .sm-status-deg { color: #fbbc04; font-weight: 600; }
+
+        /* Hierarchy panels */
+        .hier-panel { background: #f8f9ff; border-radius: 10px; padding: 16px; margin-top: 12px; }
+        .hier-panel h4 { color: #1a73e8; font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .ap-card { background: white; border-radius: 10px; padding: 12px 14px; border: 1px solid #e0e7ff; cursor: pointer; transition: all 0.2s; position: relative; }
+        .ap-card:hover { border-color: #1a73e8; box-shadow: 0 2px 8px rgba(26,115,232,0.15); transform: translateY(-1px); }
+        .ap-card.active { border-color: #1a73e8; background: #e8f0fe; }
+        .ap-card .ap-name { font-weight: 600; font-size: 13px; color: #333; }
+        .ap-card .ap-ip { font-size: 12px; color: #888; font-family: monospace; margin-top: 2px; }
+        .ap-card .ap-meta { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+        .ap-card .sm-badge { background: #e8f0fe; color: #1a73e8; border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+        .ap-card .unlink-btn { position: absolute; top: 6px; right: 6px; background: #fce8e6; color: #ea4335; border: none; border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer; display: none; }
+        .ap-card:hover .unlink-btn { display: block; }
+        .add-ap-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .add-ap-row input { padding: 7px 10px; border: 1px solid #ddd; border-radius: 7px; font-size: 13px; flex: 1; min-width: 140px; outline: none; }
+        .add-ap-row input:focus { border-color: #1a73e8; }
+        .sm-inline { margin-top: 12px; border-top: 2px solid #e8f0fe; padding-top: 12px; }
             .summary-cards { grid-template-columns: repeat(2, 1fr); }
             table { font-size: 12px; }
             thead th, tbody td { padding: 8px 10px; }
@@ -364,9 +382,12 @@ function renderTable(devices) {
         const sig = d.signal_dbm != null ? d.signal_dbm.toFixed(1) : '-';
         const uptime = formatUptime(d.uptime_seconds);
         const lastSeen = d.last_seen ? d.last_seen.substring(0, 16) : 'Never';
+        const isSwitch = ['raisecom','edgecore','generic'].includes(d.device_type);
+        const isAP = ['epmp','powerbeam'].includes(d.device_type);
+        const expandBtn = `<button class="action-btn btn-chart" onclick="toggleExpand(${d.id}, '${d.device_type}')" title="Expand">📊</button>`;
         return `<tr id="row-${d.id}">
             <td>${i + 1}</td>
-            <td><strong>${d.name}</strong></td>
+            <td><strong>${d.name}</strong>${isSwitch ? ` <span style="font-size:11px;background:#e8f0fe;color:#1a73e8;border-radius:10px;padding:1px 7px;margin-left:4px;">Switch</span>` : ''}</td>
             <td><code>${d.ip}</code></td>
             <td>${deviceTypeLabel(d.device_type)}</td>
             <td>${d.location || '-'}</td>
@@ -378,39 +399,168 @@ function renderTable(devices) {
             <td>${sig !== '-' ? sig + ' dBm' : '-'}</td>
             <td style="font-size:12px;color:#888;">${lastSeen}</td>
             <td>
-                <button class="action-btn btn-chart" onclick="toggleChart(${d.id})">📈</button>
+                ${expandBtn}
                 <button class="action-btn btn-edit" onclick="openEditModal(${d.id})">✏️</button>
                 <button class="action-btn btn-delete" onclick="deleteDevice(${d.id}, '${d.name.replace(/'/g,"\\'")}')">🗑️</button>
             </td>
         </tr>
-        <tr class="chart-row" id="chart-row-${d.id}">
-            <td colspan="13">
+        <tr class="chart-row" id="chart-row-${d.id}" style="display:none;">
+            <td colspan="13" style="padding:16px 20px; background:#f8f9ff;">
+                ${isSwitch ? `
+                <div id="hier-panel-${d.id}">
+                    <div style="color:#888;font-size:13px;">Loading AP hierarchy...</div>
+                </div>` : `
                 <div class="chart-controls">
                     <button class="chart-btn active" onclick="loadChart(${d.id}, 1, this)">1h</button>
                     <button class="chart-btn" onclick="loadChart(${d.id}, 6, this)">6h</button>
                     <button class="chart-btn" onclick="loadChart(${d.id}, 24, this)">24h</button>
-                    <span style="margin-left:10px;font-size:13px;color:#888;">Traffic (Mbps) for <strong>${d.name}</strong></span>
+                    <span style="margin-left:10px;font-size:13px;color:#888;">Traffic (Mbps) — <strong>${d.name}</strong></span>
                 </div>
                 <div class="chart-container"><canvas id="chart-${d.id}"></canvas></div>
-                ${['epmp','powerbeam'].includes(d.device_type) ? `<div class="sm-panel" id="sm-panel-${d.id}"><div style="color:#888;font-size:13px;">Loading SM devices...</div></div>` : ''}
+                ${isAP ? `<div id="sm-panel-${d.id}" style="margin-top:12px;"><div style="color:#888;font-size:13px;">Loading SM devices...</div></div>` : ''}`}
             </td>
         </tr>`;
     }).join('');
 }
+    }).join('');
+}
 
-function toggleChart(deviceId) {
+function toggleExpand(deviceId, deviceType) {
     const row = document.getElementById(`chart-row-${deviceId}`);
+    const isSwitch = ['raisecom','edgecore','generic'].includes(deviceType);
+    const isAP = ['epmp','powerbeam'].includes(deviceType);
     if (row.style.display === 'table-row') {
         row.style.display = 'none';
         if (chartInstances[deviceId]) { chartInstances[deviceId].destroy(); delete chartInstances[deviceId]; }
     } else {
         row.style.display = 'table-row';
-        loadChart(deviceId, 1, row.querySelector('.chart-btn'));
-        // Load SM devices if AP type
-        const d = allDevices.find(x => x.id === deviceId);
-        if (d && ['epmp','powerbeam'].includes(d.device_type)) {
-            loadSmDevices(deviceId);
+        if (isSwitch) {
+            loadHierPanel(deviceId);
+        } else {
+            loadChart(deviceId, 1, row.querySelector('.chart-btn'));
+            if (isAP) loadSmDevices(deviceId);
         }
+    }
+}
+
+async function loadHierPanel(switchId) {
+    const panel = document.getElementById(`hier-panel-${switchId}`);
+    if (!panel) return;
+    try {
+        const res = await fetch(`/api/snmp/devices/${switchId}/children`);
+        const data = await res.json();
+        const children = data.success ? data.children : [];
+        const apCards = children.map(ap => {
+            const sc = ap.last_status === 'online' ? 'status-online' : ap.last_status === 'offline' ? 'status-offline' : 'status-unknown';
+            const sig = ap.signal_dbm != null ? `${ap.signal_dbm.toFixed(1)} dBm` : '';
+            return `<div class="ap-card" id="apcard-${ap.id}" onclick="toggleApSm(${switchId}, ${ap.id}, '${ap.ip}', '${ap.name.replace(/'/g,"\\'")}')">
+                <button class="unlink-btn" onclick="event.stopPropagation(); unlinkAp(${switchId}, ${ap.id}, '${ap.name.replace(/'/g,"\\'")}')">✕</button>
+                <div class="ap-name">📡 ${ap.name}</div>
+                <div class="ap-ip">${ap.ip}</div>
+                <div class="ap-meta">
+                    <span class="status-badge ${sc}" style="font-size:11px;">${(ap.last_status||'unknown').toUpperCase()}</span>
+                    <span class="sm-badge">👥 ${ap.sm_count} SMs</span>
+                    ${sig ? `<span style="font-size:11px;color:#888;">${sig}</span>` : ''}
+                    ${ap.location ? `<span style="font-size:11px;color:#888;">📍 ${ap.location}</span>` : ''}
+                </div>
+                <div id="sm-inline-${ap.id}" class="sm-inline" style="display:none;"></div>
+            </div>`;
+        }).join('');
+
+        panel.innerHTML = `
+            <div class="hier-panel">
+                <h4>🔌 APs / Uplinks under this Switch
+                    <span style="background:#e8f0fe;color:#1a73e8;border-radius:12px;padding:2px 10px;font-size:12px;">${children.length} connected</span>
+                </h4>
+                <div class="ap-grid">${apCards || '<div style="color:#888;font-size:13px;">No APs linked yet. Add one below.</div>'}</div>
+                <div class="add-ap-row">
+                    <input type="text" id="newApIp-${switchId}" placeholder="Enter AP IP (e.g. 192.168.138.14)">
+                    <select id="newApType-${switchId}" style="padding:7px 10px;border:1px solid #ddd;border-radius:7px;font-size:13px;">
+                        <option value="epmp">Cambium ePMP</option>
+                        <option value="powerbeam">Ubiquiti PowerBeam</option>
+                        <option value="raisecom">Raisecom Switch</option>
+                        <option value="edgecore">Edgecore Switch</option>
+                        <option value="generic">Other</option>
+                    </select>
+                    <button class="nav-btn green" style="padding:7px 14px;font-size:13px;" onclick="addApToSwitch(${switchId})">+ Add AP/Uplink</button>
+                </div>
+            </div>`;
+    } catch(e) {
+        panel.innerHTML = `<div style="color:#ea4335;font-size:13px;">Failed to load hierarchy: ${e.message}</div>`;
+    }
+}
+
+async function addApToSwitch(switchId) {
+    const ipEl = document.getElementById(`newApIp-${switchId}`);
+    const typeEl = document.getElementById(`newApType-${switchId}`);
+    const ip = ipEl.value.trim();
+    if (!ip) { showAlert('Validation', 'Enter an AP IP address.'); return; }
+    try {
+        const res = await fetch(`/api/snmp/devices/${switchId}/link`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ child_ip: ip, link_type: typeEl.value })
+        });
+        const data = await res.json();
+        if (data.success) {
+            ipEl.value = '';
+            loadHierPanel(switchId);
+            loadDevices(); // refresh main table
+        } else {
+            showAlert('Error', data.error || 'Failed to add AP');
+        }
+    } catch(e) {
+        showAlert('Error', e.message);
+    }
+}
+
+async function unlinkAp(switchId, childId, name) {
+    showConfirm('Remove Link', `Remove "${name}" from this switch? (Device stays in the system)`, async () => {
+        const res = await fetch(`/api/snmp/devices/${switchId}/link/${childId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) loadHierPanel(switchId);
+        else showAlert('Error', data.error);
+    });
+}
+
+async function toggleApSm(switchId, apId, apIp, apName) {
+    const card = document.getElementById(`apcard-${apId}`);
+    const smDiv = document.getElementById(`sm-inline-${apId}`);
+    if (!card || !smDiv) return;
+    if (smDiv.style.display === 'block') {
+        smDiv.style.display = 'none';
+        card.classList.remove('active');
+        return;
+    }
+    card.classList.add('active');
+    smDiv.style.display = 'block';
+    smDiv.innerHTML = '<div style="color:#888;font-size:12px;padding:8px 0;">Loading SM clients...</div>';
+    try {
+        const res = await fetch(`/api/snmp/devices/${apId}/sm_devices`);
+        const data = await res.json();
+        if (!data.success || !data.sm_devices.length) {
+            smDiv.innerHTML = '<div style="color:#888;font-size:12px;padding:6px 0;">No SM clients found in sheet for this AP.</div>';
+            return;
+        }
+        const rows = data.sm_devices.map((s, i) => {
+            const sc = s.status === 'Reachable' ? 'sm-status-up' : s.status === 'Down' ? 'sm-status-down' : s.status === 'Degraded' ? 'sm-status-deg' : '';
+            return `<tr>
+                <td>${i+1}</td>
+                <td><code>${s.sm_ip}</code></td>
+                <td style="font-size:11px;color:#888;">${s.cid}</td>
+                <td>${s.device_name}</td>
+                <td class="${sc}">${s.status}</td>
+                <td>${s.latency != null ? s.latency + ' ms' : 'N/A'}</td>
+            </tr>`;
+        }).join('');
+        smDiv.innerHTML = `
+            <div style="font-size:12px;font-weight:600;color:#1a73e8;margin-bottom:6px;">👥 ${data.sm_devices.length} SM Clients</div>
+            <table class="sm-table">
+                <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device Name</th><th>Status</th><th>Latency</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    } catch(e) {
+        smDiv.innerHTML = `<div style="color:#ea4335;font-size:12px;">Error: ${e.message}</div>`;
     }
 }
 
