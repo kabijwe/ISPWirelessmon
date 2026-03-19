@@ -515,32 +515,32 @@ async function loadPortsTable(swId){
       const pn=p.if_descr||p.if_name||`Port ${p.port_index}`;
       const rx=p.rx_mbps!=null?p.rx_mbps.toFixed(3):'—';
       const tx=p.tx_mbps!=null?p.tx_mbps.toFixed(3):'—';
-      const defaultLabel=p.custom_label||(p.ap_name||'');
       const apIp=p.ap_ip||'';
       const err=(p.in_errors>0||p.out_errors>0)?`<span style="color:#ea4335;">⚠ ${p.in_errors}/${p.out_errors}</span>`:'—';
-      let apCell;
+
+      // Port cell: port name + AP name badge below (clickable)
+      const apNameBadge=apIp&&p.ap_name
+        ?`<div style="margin-top:4px;"><span class="badge b-blue" style="cursor:pointer;font-size:11px;" onclick="toggleApPanel(${swId},${p.port_index},'${apIp}')">📡 ${p.ap_name} · 👥 ${p.sm_count} SMs · 📍 ${p.ap_location||'—'}</span></div>`
+        :(apIp?`<div style="font-size:10px;color:#aaa;margin-top:3px;">IP not in sheet</div>`:'');
+
+      // AP IP cell: just IP + edit button, no badge
+      let apIpCell;
       if(apIp){
-        const apBadge=p.ap_name
-          ?`<div style="margin-top:4px;"><span class="badge b-blue" style="cursor:pointer;font-size:11px;" onclick="toggleApPanel(${swId},${p.port_index},'${apIp}')">${p.ap_name} · 👥 ${p.sm_count} SMs · 📍 ${p.ap_location||'—'}</span></div>`
-          :`<div style="font-size:11px;color:#aaa;margin-top:3px;">IP not in sheet</div>`;
         const editBtn=IS_ADMIN?`<button onclick="unlockApIp(${swId},${p.port_index},'${apIp}')" style="background:#fff3e0;color:#f57c00;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;margin-left:4px;">✏️</button>`:'';
-        apCell=`<code style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:4px;">${apIp}</code>${editBtn}${apBadge}`;
+        apIpCell=`<code style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:4px;">${apIp}</code>${editBtn}`;
       }else if(IS_ADMIN){
-        apCell=`<input type="text" placeholder="Enter AP IP…" id="apip-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;font-family:monospace;" onblur="savePortApIp(${swId},${p.port_index})">`;
+        apIpCell=`<input type="text" placeholder="Enter AP IP…" id="apip-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;font-family:monospace;" onblur="savePortApIp(${swId},${p.port_index})">`;
       }else{
-        apCell=`<span style="color:#ccc;">—</span>`;
+        apIpCell=`<span style="color:#ccc;">—</span>`;
       }
-      const lblCell=IS_ADMIN
-        ?`<input type="text" value="${defaultLabel}" placeholder="Label…" id="lbl-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;" onblur="savePortLabel(${swId},${p.port_index})">`
-        :`<span>${defaultLabel||'<span style="color:#ccc;">—</span>'}</span>`;
+
       return`<tr class="port-row">
         <td>
           <span class="link-dot" style="background:${up?'#34a853':'#ea4335'};"></span>
           <span class="port-num" onclick="togglePort(${swId},${p.port_index})">${pn}</span>
-          ${p.if_name&&p.if_name!==p.if_descr?`<div style="font-size:10px;color:#aaa;margin-top:1px;">${p.if_name}</div>`:''}
+          ${apNameBadge}
         </td>
-        <td>${lblCell}</td>
-        <td>${apCell}</td>
+        <td>${apIpCell}</td>
         <td>${fmtSpd(p.speed_bps)}</td>
         <td><span class="badge ${adm?'b-green':'b-red'}">${adm?'Enabled':'Disabled'}</span></td>
         <td><span class="badge ${up?'b-green':'b-red'}">${up?'UP':'DOWN'}</span></td>
@@ -549,11 +549,11 @@ async function loadPortsTable(swId){
         <td>${err}</td>
       </tr>
       <tr class="port-exp" id="pexp-${swId}-${p.port_index}">
-        <td colspan="9">
+        <td colspan="8">
           <div class="port-exp-inner">
             <div class="graph-card">
               <div class="graph-card-hdr">
-                <span class="gc-title">📈 Port Traffic — ${pn}${defaultLabel?' ('+defaultLabel+')':''}</span>
+                <span class="gc-title">📈 Port Traffic — ${pn}${p.ap_name?' ('+p.ap_name+')':''}</span>
                 <div class="time-btns">
                   <button class="tb active" onclick="loadPortChart(${swId},${p.port_index},1,this)">1h</button>
                   <button class="tb" onclick="loadPortChart(${swId},${p.port_index},6,this)">6h</button>
@@ -571,7 +571,7 @@ async function loadPortsTable(swId){
     }).join('');
     body.innerHTML=`<div class="ports-table-wrap"><table class="port-tbl">
       <thead><tr>
-        <th>Port</th><th>Label</th><th>AP / Device</th><th>Speed</th>
+        <th>Port</th><th>AP IP</th><th>Speed</th>
         <th>Admin</th><th>Link</th>
         <th style="color:#34a853;">RX Mbps</th><th style="color:#1a73e8;">TX Mbps</th>
         <th>Errors</th>
