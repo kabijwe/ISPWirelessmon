@@ -105,12 +105,14 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .ap-graph-box canvas{width:100%!important;height:180px!important;}
 
 /* ── SM table ── */
-.sm-tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.sm-tbl thead th{background:#e8f0fe;color:#1a73e8;padding:8px 12px;text-align:left;font-size:11px;font-weight:600;}
-.sm-tbl tbody tr{border-bottom:1px solid #f0f2f5;}
-.sm-tbl tbody tr:hover{background:#f8f9ff;}
-.sm-tbl tbody td{padding:7px 12px;}
-.sm-up{color:#34a853;font-weight:600;}.sm-down{color:#ea4335;font-weight:600;}.sm-deg{color:#fbbc04;font-weight:600;}
+.sm-tbl{width:100%;border-collapse:collapse;font-size:13px;}
+.sm-tbl thead th{background:#1a73e8;color:#fff;padding:10px 14px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;}
+.sm-tbl tbody tr{border-bottom:1px solid #e8eaed;transition:background .12s;}
+.sm-tbl tbody tr:hover{background:#f0f4ff;}
+.sm-tbl tbody td{padding:10px 14px;color:#333;}
+.sm-tbl tbody td code{font-size:12px;background:#e8f0fe;color:#1a73e8;padding:2px 8px;border-radius:4px;font-weight:600;}
+.sm-up{color:#34a853;font-weight:700;}.sm-down{color:#ea4335;font-weight:700;}.sm-deg{color:#fbbc04;font-weight:700;}
+.sm-unknown{color:#888;font-weight:600;}
 
 /* ── Badges ── */
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
@@ -672,8 +674,8 @@ async function buildApPanel(panel,swId,portIdx,apIp){
     const apFw=apDev&&apDev.firmware?apDev.firmware:'—';
     const graphId=`apg-${swId}-${portIdx}`;
     const smRows=smList.map((s,i)=>{
-      const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':s.status==='Degraded'?'sm-deg':'';
-      return`<tr><td>${i+1}</td><td><code style="font-size:11px;">${s.sm_ip}</code></td><td style="color:#888;">${s.cid||'—'}</td><td>${s.device_name||'—'}</td><td>${s.location||'—'}</td><td class="${sc}">${s.status}</td><td>${s.latency!=null?s.latency+' ms':'—'}</td></tr>`;
+      const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':s.status==='Degraded'?'sm-deg':'sm-unknown';
+      return`<tr><td style="color:#888;font-weight:600;">${i+1}</td><td><code>${s.sm_ip}</code></td><td style="color:#555;">${s.cid||'—'}</td><td style="font-weight:500;">${s.device_name||'—'}</td><td>${s.location||'—'}</td><td class="${sc}">${s.status}</td><td style="font-family:monospace;">${s.latency!=null?s.latency+' ms':'—'}</td></tr>`;
     }).join('');
     panel.innerHTML=`
     <div class="ap-panel">
