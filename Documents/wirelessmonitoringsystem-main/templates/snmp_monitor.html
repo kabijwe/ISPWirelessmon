@@ -7,114 +7,119 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20px;min-height:100vh;}
+body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
 
-/* ── Header ── */
-.header{background:#fff;border-radius:14px;padding:16px 24px;margin-bottom:20px;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
-.header h1{color:#1a73e8;font-size:22px;font-weight:700;}
-.nav-buttons{display:flex;gap:8px;flex-wrap:wrap;}
-.nav-btn{padding:8px 16px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:13px;border:none;cursor:pointer;transition:all .2s;}
-.nav-btn:hover{background:#1557b0;transform:translateY(-1px);}
+/* ── Top nav ── */
+.topnav{background:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);z-index:100;flex-shrink:0;}
+.topnav h1{color:#1a73e8;font-size:18px;font-weight:700;margin-right:8px;}
+.nav-btn{padding:7px 14px;background:#1a73e8;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:12px;border:none;cursor:pointer;transition:background .2s;}
+.nav-btn:hover{background:#1557b0;}
 .nav-btn.green{background:#34a853;}.nav-btn.green:hover{background:#2d8f47;}
 .nav-btn.red{background:#ea4335;}.nav-btn.red:hover{background:#c5221f;}
+.nav-btn.gray{background:#888;}.nav-btn.gray:hover{background:#666;}
+.topnav-right{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.refresh-info{font-size:11px;color:#aaa;}
 
-/* ── Summary cards ── */
-.summary-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
-.card{background:#fff;border-radius:12px;padding:18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.07);}
-.card .num{font-size:36px;font-weight:700;}
-.card .lbl{font-size:12px;color:#888;margin-top:4px;}
-.card.total .num{color:#1a73e8;}.card.online .num{color:#34a853;}
-.card.offline .num{color:#ea4335;}.card.warning .num{color:#fbbc04;}
+/* ── Layout ── */
+.layout{display:flex;flex:1;overflow:hidden;}
 
-/* ── Filters ── */
-.controls{background:#fff;border-radius:12px;padding:13px 18px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,.07);display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-.controls select,.controls input{padding:7px 11px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none;}
-.controls select:focus,.controls input:focus{border-color:#1a73e8;}
+/* ── Sidebar ── */
+.sidebar{width:260px;background:#fff;border-right:1px solid #e8eaed;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;}
+.sidebar-hdr{padding:14px 16px;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;}
+.sidebar-hdr span{font-size:13px;font-weight:700;color:#444;}
+.sidebar-search{padding:10px 12px;border-bottom:1px solid #f0f2f5;}
+.sidebar-search input{width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:12px;outline:none;}
+.sidebar-search input:focus{border-color:#1a73e8;}
+.sw-list{flex:1;overflow-y:auto;}
+.sw-item{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;border-bottom:1px solid #f8f9fa;transition:background .12s;position:relative;}
+.sw-item:hover{background:#f8f9ff;}
+.sw-item.active{background:#e8f0fe;border-left:3px solid #1a73e8;}
+.sw-item.active .sw-item-name{color:#1a73e8;}
+.sw-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.sw-item-info{flex:1;min-width:0;}
+.sw-item-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sw-item-sub{font-size:11px;color:#888;margin-top:2px;}
+.sw-item-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;}
 
-/* ── Badges ── */
-.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
-.b-blue{background:#e8f0fe;color:#1a73e8;}.b-green{background:#e6f4ea;color:#34a853;}
-.b-red{background:#fce8e6;color:#ea4335;}.b-gray{background:#f1f3f4;color:#888;}
-.b-orange{background:#fff3e0;color:#f57c00;}.b-purple{background:#f3e5f5;color:#7b1fa2;}
+/* ── Main panel ── */
+.main{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#aaa;gap:12px;}
+.empty-state .es-icon{font-size:56px;}
+.empty-state p{font-size:14px;}
 
-/* ── Switch card ── */
-.sw-card{background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.08);margin-bottom:18px;overflow:hidden;}
-.sw-hdr{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;user-select:none;border-bottom:2px solid #e8f0fe;transition:background .15s;}
-.sw-hdr:hover{background:#f8f9ff;}
-.sw-hdr .sw-icon{font-size:26px;}
-.sw-hdr .sw-info{flex:1;}
-.sw-hdr .sw-name{font-size:16px;font-weight:700;color:#1a73e8;}
-.sw-hdr .sw-meta{font-size:12px;color:#888;margin-top:3px;display:flex;gap:14px;flex-wrap:wrap;}
-.sw-hdr .sw-right{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
-.sw-chevron{font-size:16px;color:#aaa;transition:transform .25s;margin-left:8px;}
-.sw-chevron.open{transform:rotate(180deg);}
-.sw-body{display:none;}
-.sw-body.open{display:block;}
+/* ── Switch header card ── */
+.sw-detail-hdr{background:#fff;border-radius:14px;padding:18px 22px;box-shadow:0 2px 10px rgba(0,0,0,.07);display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.sw-detail-icon{font-size:36px;}
+.sw-detail-info{flex:1;}
+.sw-detail-name{font-size:20px;font-weight:700;color:#1a73e8;}
+.sw-detail-meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:5px;font-size:12px;color:#666;}
+.sw-detail-actions{display:flex;gap:8px;}
 
-/* ── Switch metrics bar ── */
-.sw-metrics{display:flex;border-bottom:1px solid #f0f2f5;background:#fafbff;}
-.sw-met{flex:1;padding:12px 16px;text-align:center;border-right:1px solid #f0f2f5;}
-.sw-met:last-child{border-right:none;}
-.sw-met .mv{font-size:20px;font-weight:700;}
-.sw-met .mk{font-size:11px;color:#888;margin-top:3px;}
+/* ── Metric tiles ── */
+.metric-tiles{display:flex;gap:12px;flex-wrap:wrap;}
+.mtile{background:#fff;border-radius:12px;padding:14px 18px;flex:1;min-width:100px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.06);}
+.mtile .mv{font-size:28px;font-weight:700;}
+.mtile .mk{font-size:11px;color:#888;margin-top:3px;}
 
-/* ── Switch graphs ── */
-.sw-graphs{padding:16px 20px;border-bottom:1px solid #f0f2f5;background:#fafbff;}
-.sw-graphs-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-.sw-graphs-hdr span{font-size:13px;font-weight:600;color:#444;}
+/* ── Graph card ── */
+.graph-card{background:#fff;border-radius:14px;padding:16px 20px;box-shadow:0 2px 10px rgba(0,0,0,.07);}
+.graph-card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.graph-card-hdr .gc-title{font-size:13px;font-weight:700;color:#444;}
 .time-btns{display:flex;gap:4px;}
 .tb{padding:4px 12px;border:1px solid #1a73e8;border-radius:6px;background:#fff;color:#1a73e8;cursor:pointer;font-size:12px;font-weight:600;}
 .tb.active{background:#1a73e8;color:#fff;}
-.sw-graphs-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-.graph-box{background:#fff;border-radius:10px;padding:14px 16px;box-shadow:0 1px 5px rgba(0,0,0,.06);}
-.graph-box .g-title{font-size:12px;font-weight:600;color:#555;margin-bottom:10px;}
-.graph-box canvas{width:100%!important;height:200px!important;}
+.graph-card canvas{width:100%!important;height:220px!important;}
 
 /* ── Port table ── */
-.port-section{padding:0 0 4px;}
-.port-section-hdr{padding:10px 20px;background:#f0f4ff;font-size:12px;font-weight:700;color:#555;border-bottom:1px solid #e0e7ff;border-top:1px solid #e0e7ff;display:flex;align-items:center;gap:8px;}
+.ports-card{background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.07);overflow:hidden;}
+.ports-card-hdr{padding:13px 20px;border-bottom:1px solid #f0f2f5;display:flex;align-items:center;justify-content:space-between;}
+.ports-card-hdr span{font-size:13px;font-weight:700;color:#444;}
 .port-tbl{width:100%;border-collapse:collapse;}
 .port-tbl thead th{background:#e8f0fe;color:#444;padding:9px 14px;text-align:left;font-size:12px;font-weight:600;border-bottom:2px solid #d2e3fc;}
 .port-tbl tbody tr.port-row{border-bottom:1px solid #f0f2f5;transition:background .12s;}
 .port-tbl tbody tr.port-row:hover{background:#f8f9ff;}
 .port-tbl tbody td{padding:10px 14px;font-size:12px;vertical-align:middle;}
-.port-num{font-family:monospace;font-weight:700;color:#1a73e8;cursor:pointer;text-decoration:underline dotted;font-size:13px;}
-.link-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+.port-num{font-family:monospace;font-weight:700;color:#1a73e8;cursor:pointer;font-size:13px;}
+.port-num:hover{text-decoration:underline;}
+.link-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;}
 
 /* ── Port expand ── */
 .port-exp{display:none;background:#f5f7ff;}
 .port-exp td{padding:0!important;}
-.port-exp-inner{padding:16px 20px;}
+.port-exp-inner{padding:16px 20px;display:flex;flex-direction:column;gap:14px;}
 
-/* ── AP panel (inside port expand) ── */
-.ap-panel{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);overflow:hidden;margin-bottom:12px;}
-.ap-panel-hdr{display:flex;align-items:center;gap:12px;padding:14px 18px;background:#e8f0fe;border-bottom:1px solid #d2e3fc;cursor:pointer;}
-.ap-panel-hdr .ap-icon{font-size:22px;}
+/* ── AP panel ── */
+.ap-panel{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);overflow:hidden;}
+.ap-panel-hdr{display:flex;align-items:center;gap:12px;padding:13px 18px;background:#e8f0fe;border-bottom:1px solid #d2e3fc;cursor:pointer;user-select:none;}
 .ap-panel-hdr .ap-title{font-size:14px;font-weight:700;color:#1a73e8;flex:1;}
 .ap-panel-hdr .ap-sub{font-size:12px;color:#555;}
-.ap-panel-body{display:none;padding:16px 18px;}
+.ap-panel-body{padding:16px 18px;display:none;}
 .ap-panel-body.open{display:block;}
-
-/* AP stats row */
-.ap-stats{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
-.ap-stat{flex:1;min-width:90px;background:#f8f9ff;border-radius:10px;padding:10px 12px;text-align:center;border:1px solid #e8f0fe;}
-.ap-stat .sv{font-size:20px;font-weight:700;color:#1a73e8;}
+.ap-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.ap-stat{flex:1;min-width:80px;background:#f8f9ff;border-radius:10px;padding:10px 12px;text-align:center;border:1px solid #e8f0fe;}
+.ap-stat .sv{font-size:18px;font-weight:700;color:#1a73e8;}
 .ap-stat .sk{font-size:11px;color:#888;margin-top:3px;}
-
-/* AP graphs */
-.ap-graphs-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
-.ap-graph-box{background:#f8f9ff;border-radius:10px;padding:12px 14px;border:1px solid #e8f0fe;}
-.ap-graph-box .g-title{font-size:12px;font-weight:600;color:#555;margin-bottom:8px;}
+.ap-graph-box{background:#f8f9ff;border-radius:10px;padding:12px 14px;border:1px solid #e8f0fe;margin-bottom:14px;}
+.ap-graph-box .g-title{font-size:12px;font-weight:600;color:#555;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
 .ap-graph-box canvas{width:100%!important;height:180px!important;}
 
-/* SM table */
-.sm-section-title{font-size:13px;font-weight:700;color:#1a73e8;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+/* ── SM table ── */
 .sm-tbl{width:100%;border-collapse:collapse;font-size:12px;}
 .sm-tbl thead th{background:#e8f0fe;color:#1a73e8;padding:8px 12px;text-align:left;font-size:11px;font-weight:600;}
 .sm-tbl tbody tr{border-bottom:1px solid #f0f2f5;}
 .sm-tbl tbody tr:hover{background:#f8f9ff;}
 .sm-tbl tbody td{padding:7px 12px;}
 .sm-up{color:#34a853;font-weight:600;}.sm-down{color:#ea4335;font-weight:600;}.sm-deg{color:#fbbc04;font-weight:600;}
+
+/* ── Badges ── */
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.b-blue{background:#e8f0fe;color:#1a73e8;}.b-green{background:#e6f4ea;color:#34a853;}
+.b-red{background:#fce8e6;color:#ea4335;}.b-gray{background:#f1f3f4;color:#888;}
+.b-orange{background:#fff3e0;color:#f57c00;}.b-purple{background:#f3e5f5;color:#7b1fa2;}
+
+/* ── Action btns ── */
+.action-btn{padding:4px 9px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;margin:0 2px;}
+.btn-edit{background:#e8f0fe;color:#1a73e8;}.btn-delete{background:#fce8e6;color:#ea4335;}
 
 /* ── Modals ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;}
@@ -135,56 +140,57 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
 .alert-modal p{color:#555;margin-bottom:18px;font-size:13px;}
 .alert-modal .modal-actions{justify-content:center;}
 
-/* ── Action btns ── */
-.action-btn{padding:4px 9px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;margin:0 2px;}
-.btn-edit{background:#e8f0fe;color:#1a73e8;}.btn-delete{background:#fce8e6;color:#ea4335;}
-
 @media(max-width:768px){
-  .summary-cards{grid-template-columns:repeat(2,1fr);}
-  .sw-graphs-row,.ap-graphs-row{grid-template-columns:1fr;}
+  .sidebar{display:none;}
+  .main{padding:12px;}
 }
 </style>
 </head>
 <body>
 
-<!-- Header -->
-<div class="header">
-  <h1>🔌 SNMP Network Monitor</h1>
-  <div class="nav-buttons">
-    <a href="/" class="nav-btn">🏠 Dashboard</a>
-    <a href="/my_tasks" class="nav-btn">📋 Tasks</a>
-    <a href="/location_uptime_monitor" class="nav-btn">📍 Uptime</a>
-    <a href="/sla" class="nav-btn">📊 SLA</a>
-    {% if user.role in ['admin','superadmin','regional_admin'] %}
-    <a href="/admin" class="nav-btn">🔒 Admin</a>
-    {% endif %}
-    <button class="nav-btn green" onclick="openAddModal()">＋ Add Device</button>
+<!-- Top Nav -->
+<div class="topnav">
+  <h1>🔌 SNMP Monitor</h1>
+  <a href="/" class="nav-btn">🏠 Dashboard</a>
+  <a href="/my_tasks" class="nav-btn">📋 Tasks</a>
+  <a href="/location_uptime_monitor" class="nav-btn">📍 Uptime</a>
+  <a href="/sla" class="nav-btn">📊 SLA</a>
+  {% if user.role in ['admin','superadmin','regional_admin'] %}
+  <a href="/admin" class="nav-btn">🔒 Admin</a>
+  {% endif %}
+  <div class="topnav-right">
+    <span class="refresh-info" id="lastRefresh"></span>
     <button class="nav-btn" onclick="loadAll()">🔄 Refresh</button>
+    <button class="nav-btn green" onclick="openAddModal()">＋ Add Device</button>
   </div>
 </div>
 
-<!-- Summary Cards -->
-<div class="summary-cards">
-  <div class="card total"><div class="num" id="cTotal">—</div><div class="lbl">Total Devices</div></div>
-  <div class="card online"><div class="num" id="cOnline">—</div><div class="lbl">Online</div></div>
-  <div class="card offline"><div class="num" id="cOffline">—</div><div class="lbl">Offline</div></div>
-  <div class="card warning"><div class="num" id="cUnknown">—</div><div class="lbl">Unknown</div></div>
-</div>
+<!-- Layout -->
+<div class="layout">
 
-<!-- Filters -->
-<div class="controls">
-  <select id="fStatus" onchange="applyFilters()">
-    <option value="">All Statuses</option>
-    <option value="online">Online</option>
-    <option value="offline">Offline</option>
-    <option value="unknown">Unknown</option>
-  </select>
-  <input type="text" id="fSearch" placeholder="🔍 Search switch / IP / location…" oninput="applyFilters()" style="min-width:240px;">
-  <span style="margin-left:auto;font-size:12px;color:#888;" id="lastRefresh"></span>
-</div>
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-hdr">
+      <span>🔀 Switches</span>
+      <span id="swCount" style="font-size:11px;color:#aaa;"></span>
+    </div>
+    <div class="sidebar-search">
+      <input type="text" id="sideSearch" placeholder="🔍 Search…" oninput="filterSidebar()">
+    </div>
+    <div class="sw-list" id="swList">
+      <div style="padding:20px;text-align:center;color:#aaa;font-size:13px;">Loading…</div>
+    </div>
+  </div>
 
-<!-- Switch list -->
-<div id="switchList"><div style="text-align:center;padding:40px;color:#888;">Loading…</div></div>
+  <!-- Main panel -->
+  <div class="main" id="mainPanel">
+    <div class="empty-state">
+      <div class="es-icon">🔀</div>
+      <p>Select a switch from the sidebar to view details</p>
+    </div>
+  </div>
+
+</div>
 
 <!-- ── Add/Edit Modal ── -->
 <div class="modal-overlay" id="deviceModal">
@@ -199,7 +205,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label>Device Name *</label>
-        <input type="text" id="fName" placeholder="e.g. AP Wagleek">
+        <input type="text" id="fName" placeholder="e.g. sw-dgd-doti-02">
       </div>
       <div class="form-group">
         <label>SNMP Community *</label>
@@ -229,7 +235,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
       </div>
       <div class="form-group">
         <label>Model</label>
-        <input type="text" id="fModel" placeholder="e.g. ePMP 1000">
+        <input type="text" id="fModel" placeholder="e.g. ECS2100-10T">
       </div>
       <div class="form-group">
         <label>MAC Address</label>
@@ -237,7 +243,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
       </div>
       <div class="form-group">
         <label>Firmware</label>
-        <input type="text" id="fFirmware" placeholder="e.g. 4.6.1">
+        <input type="text" id="fFirmware" placeholder="e.g. 3.1.3.251">
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label>Description / Notes</label>
@@ -248,20 +254,9 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
         <select id="fActive"><option value="1">Yes</option><option value="0">No</option></select>
       </div>
     </div>
-    <div class="form-group" style="border-top:1px solid #eee;padding-top:12px;margin-top:4px;">
-      <label>Assign to Switch Port <span style="font-size:11px;color:#888;">(links AP to a switch port)</span></label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <select id="fSwitchId" onchange="loadSwitchPorts()" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
-          <option value="">— No switch —</option>
-        </select>
-        <select id="fPortIndex" style="flex:1;min-width:160px;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
-          <option value="">— Select port —</option>
-        </select>
-      </div>
-    </div>
     <div id="testResult" class="test-result"></div>
     <div class="modal-actions">
-      <button class="nav-btn" style="background:#888;" onclick="closeModal('deviceModal')">Cancel</button>
+      <button class="nav-btn gray" onclick="closeModal('deviceModal')">Cancel</button>
       <button class="nav-btn" onclick="testSnmp()">🔍 Test SNMP</button>
       <button class="nav-btn green" onclick="saveDevice()">💾 Save</button>
     </div>
@@ -280,23 +275,23 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;padding:20p
   <div class="alert-modal">
     <h4 id="confirmTitle">Confirm</h4><p id="confirmMsg"></p>
     <div class="modal-actions">
-      <button class="nav-btn" style="background:#888;" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="nav-btn gray" onclick="closeModal('confirmModal')">Cancel</button>
       <button class="nav-btn red" id="confirmOkBtn">Delete</button>
     </div>
   </div>
 </div>
 
-
 <script>
 const USER_ROLE = '{{ user.role }}';
 const IS_ADMIN  = ['admin','superadmin','regional_admin'].includes(USER_ROLE);
 
-let allDevices = [];
-const swCharts   = {};   // switch traffic/cpu charts
-const portCharts = {};   // port traffic charts
-const apCharts   = {};   // AP traffic charts
+let allDevices   = [];
+let activeSwitchId = null;
+const swCharts   = {};
+const portCharts = {};
+const apCharts   = {};
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+// ── Utilities ──────────────────────────────────────────────────────────────
 function showAlert(t,m){document.getElementById('alertTitle').textContent=t;document.getElementById('alertMsg').textContent=m;document.getElementById('alertModal').classList.add('show');}
 function showConfirm(t,m,cb){document.getElementById('confirmTitle').textContent=t;document.getElementById('confirmMsg').textContent=m;document.getElementById('confirmOkBtn').onclick=()=>{closeModal('confirmModal');cb();};document.getElementById('confirmModal').classList.add('show');}
 function closeModal(id){document.getElementById(id).classList.remove('show');}
@@ -304,237 +299,177 @@ function fmtUp(s){if(!s)return'N/A';const d=Math.floor(s/86400),h=Math.floor((s%
 function fmtSpd(b){if(!b)return'—';if(b>=1e9)return(b/1e9).toFixed(1)+' Gbps';if(b>=1e6)return(b/1e6).toFixed(0)+' Mbps';return b+' bps';}
 function typeLabel(t){return{raisecom:'Raisecom',edgecore:'Edgecore',epmp:'ePMP',powerbeam:'PowerBeam',generic:'Generic'}[t]||t;}
 function isSw(t){return['raisecom','edgecore','generic'].includes(t);}
-function isAP(t){return['epmp','powerbeam'].includes(t);}
 function sBadge(s){const m={online:'b-green',offline:'b-red',error:'b-orange'};return`<span class="badge ${m[s]||'b-gray'}">${(s||'unknown').toUpperCase()}</span>`;}
+function dotColor(s){return{online:'#34a853',offline:'#ea4335',error:'#f57c00'}[s]||'#ccc';}
 
-// ── Load all ──────────────────────────────────────────────────────────────────
+// ── Load all ───────────────────────────────────────────────────────────────
 async function loadAll(){
   try{
     const r=await fetch('/api/snmp/devices');
     const d=await r.json();
     if(!d.success){showAlert('Error',d.error);return;}
     allDevices=d.devices;
-    const on=allDevices.filter(x=>x.last_status==='online').length;
-    const off=allDevices.filter(x=>x.last_status==='offline').length;
-    const unk=allDevices.filter(x=>!x.last_status||x.last_status==='unknown'||x.last_status==='error').length;
-    document.getElementById('cTotal').textContent=allDevices.length;
-    document.getElementById('cOnline').textContent=on;
-    document.getElementById('cOffline').textContent=off;
-    document.getElementById('cUnknown').textContent=unk;
-    document.getElementById('lastRefresh').textContent='Refreshed: '+new Date().toLocaleTimeString();
-    applyFilters();
+    document.getElementById('lastRefresh').textContent='Updated '+new Date().toLocaleTimeString();
+    renderSidebar();
+    // Refresh active switch panel if one is selected
+    if(activeSwitchId){
+      const sw=allDevices.find(d=>d.id===activeSwitchId);
+      if(sw) updateSwDetailHeader(sw);
+    }
   }catch(e){showAlert('Error','Failed: '+e.message);}
 }
 
-function applyFilters(){
-  const sf=document.getElementById('fStatus').value;
-  const qf=document.getElementById('fSearch').value.toLowerCase();
-  const switches=allDevices.filter(d=>{
-    if(!isSw(d.device_type))return false;
-    if(sf){const s=d.last_status||'unknown';if(sf==='unknown'&&['online','offline'].includes(s))return false;if(sf!=='unknown'&&s!==sf)return false;}
-    if(qf&&!`${d.name} ${d.ip} ${d.location||''}`.toLowerCase().includes(qf))return false;
-    return true;
-  });
-  renderSwitches(switches);
+// ── Sidebar ────────────────────────────────────────────────────────────────
+function renderSidebar(){
+  const switches=allDevices.filter(d=>isSw(d.device_type));
+  document.getElementById('swCount').textContent=`${switches.length} switches`;
+  filterSidebar();
 }
 
-// ── Render switch list ────────────────────────────────────────────────────────
-function renderSwitches(switches){
-  const el=document.getElementById('switchList');
-  if(!switches.length){el.innerHTML='<div style="text-align:center;padding:40px;color:#888;font-size:14px;">No switches found. Add a switch using the button above.</div>';return;}
+function filterSidebar(){
+  const q=document.getElementById('sideSearch').value.toLowerCase();
+  const switches=allDevices.filter(d=>isSw(d.device_type)&&(!q||`${d.name} ${d.ip} ${d.location||''}`.toLowerCase().includes(q)));
+  const el=document.getElementById('swList');
+  if(!switches.length){el.innerHTML='<div style="padding:20px;text-align:center;color:#aaa;font-size:12px;">No switches found</div>';return;}
   el.innerHTML=switches.map(sw=>{
     const s=sw.last_status||'unknown';
-    const cpu=sw.cpu_percent!=null?sw.cpu_percent.toFixed(1)+'%':'—';
-    const mem=sw.mem_percent!=null?sw.mem_percent.toFixed(1)+'%':'—';
-    return`<div class="sw-card" id="swcard-${sw.id}">
-      <div class="sw-hdr" onclick="toggleSw(${sw.id})">
-        <span class="sw-icon">🔀</span>
-        <div class="sw-info">
-          <div class="sw-name">${sw.name}</div>
-          <div class="sw-meta">
-            <span>🌐 ${sw.ip}</span>
-            <span>📍 ${sw.location||'—'}</span>
-            <span>🏷 ${typeLabel(sw.device_type)}</span>
-            <span>⏱ ${fmtUp(sw.uptime_seconds)}</span>
-          </div>
-        </div>
-        <div class="sw-right">
-          ${sBadge(s)}
-          ${sw.cpu_percent!=null?`<span class="badge b-orange">CPU ${cpu}</span>`:''}
-          ${sw.mem_percent!=null?`<span class="badge b-purple">MEM ${mem}</span>`:''}
-          ${IS_ADMIN?`<button class="action-btn btn-edit" onclick="event.stopPropagation();openEditModal(${sw.id})">✏️ Edit</button>`:''}
-          ${IS_ADMIN?`<button class="action-btn btn-delete" onclick="event.stopPropagation();deleteDevice(${sw.id},'${sw.name.replace(/'/g,"\\'")}')">🗑️</button>`:''}
-        </div>
-        <span class="sw-chevron" id="chev-${sw.id}">▼</span>
+    const on=allDevices.filter(d=>d.last_status==='online').length;
+    return`<div class="sw-item${activeSwitchId===sw.id?' active':''}" onclick="selectSwitch(${sw.id})" id="switem-${sw.id}">
+      <div class="sw-dot" style="background:${dotColor(s)};"></div>
+      <div class="sw-item-info">
+        <div class="sw-item-name">${sw.name}</div>
+        <div class="sw-item-sub">${sw.ip} · ${typeLabel(sw.device_type)}</div>
+        <div class="sw-item-sub">${sw.location||'—'}</div>
       </div>
-      <div class="sw-body" id="swbody-${sw.id}">
-        <div id="swinner-${sw.id}"><div style="padding:24px;text-align:center;color:#888;">⏳ Loading switch data…</div></div>
-      </div>
+      <span class="sw-item-badge badge ${s==='online'?'b-green':s==='offline'?'b-red':'b-gray'}">${s==='online'?'ON':s==='offline'?'OFF':'?'}</span>
     </div>`;
   }).join('');
 }
 
-async function toggleSw(id){
-  const body=document.getElementById(`swbody-${id}`);
-  const chev=document.getElementById(`chev-${id}`);
-  const inner=document.getElementById(`swinner-${id}`);
-  if(body.classList.contains('open')){body.classList.remove('open');chev.classList.remove('open');return;}
-  body.classList.add('open');chev.classList.add('open');
-  if(inner.dataset.loaded==='1')return;
-  inner.dataset.loaded='1';
-  await buildSwBody(id,inner);
+// ── Select switch ──────────────────────────────────────────────────────────
+async function selectSwitch(id){
+  activeSwitchId=id;
+  // Update sidebar highlight
+  document.querySelectorAll('.sw-item').forEach(el=>el.classList.remove('active'));
+  const item=document.getElementById(`switem-${id}`);
+  if(item)item.classList.add('active');
+
+  const sw=allDevices.find(d=>d.id===id);
+  if(!sw)return;
+
+  // Destroy old charts
+  Object.keys(swCharts).forEach(k=>{swCharts[k].destroy();delete swCharts[k];});
+  Object.keys(portCharts).forEach(k=>{portCharts[k].destroy();delete portCharts[k];});
+  Object.keys(apCharts).forEach(k=>{apCharts[k].destroy();delete apCharts[k];});
+
+  const main=document.getElementById('mainPanel');
+  main.innerHTML=`<div style="padding:40px;text-align:center;color:#aaa;">⏳ Loading ${sw.name}…</div>`;
+  await buildMainPanel(sw);
 }
 
-// ── Build switch body ─────────────────────────────────────────────────────────
-async function buildSwBody(swId,container){
-  try{
-    const pr=await fetch(`/api/snmp/devices/${swId}/ports`);
-    const pd=await pr.json();
-    if(!pd.success){container.innerHTML=`<div style="color:#ea4335;padding:16px;">${pd.error}</div>`;return;}
-    const ports=pd.ports;
-    const sw=allDevices.find(d=>d.id===swId)||{};
-    const upP=ports.filter(p=>p.oper_status===1).length;
-    const dnP=ports.length-upP;
-    const hasCpu=sw.cpu_percent!=null;
-    const hasMem=sw.mem_percent!=null;
-    const hasUptime=sw.uptime_seconds!=null;
+function updateSwDetailHeader(sw){
+  const el=document.getElementById('sw-detail-uptime');
+  if(el)el.textContent=fmtUp(sw.uptime_seconds);
+  const cpu=document.getElementById('sw-detail-cpu');
+  if(cpu&&sw.cpu_percent!=null)cpu.textContent=sw.cpu_percent.toFixed(1)+'%';
+  const mem=document.getElementById('sw-detail-mem');
+  if(mem&&sw.mem_percent!=null)mem.textContent=sw.mem_percent.toFixed(1)+'%';
+}
 
-    // Build metrics bar — only show tiles that have real data
-    const metTiles=[
-      `<div class="sw-met"><div class="mv" style="color:#1a73e8;">${ports.length}</div><div class="mk">Total Ports</div></div>`,
-      `<div class="sw-met"><div class="mv" style="color:#34a853;">${upP}</div><div class="mk">Ports UP</div></div>`,
-      `<div class="sw-met"><div class="mv" style="color:#ea4335;">${dnP}</div><div class="mk">Ports DOWN</div></div>`,
-      hasCpu?`<div class="sw-met"><div class="mv" style="color:#f57c00;">${sw.cpu_percent.toFixed(1)}%</div><div class="mk">CPU</div></div>`:'',
-      hasMem?`<div class="sw-met"><div class="mv" style="color:#7b1fa2;">${sw.mem_percent.toFixed(1)}%</div><div class="mk">Memory</div></div>`:'',
-      hasUptime?`<div class="sw-met"><div class="mv" style="color:#555;font-size:16px;">${fmtUp(sw.uptime_seconds)}</div><div class="mk">Uptime</div></div>`:'',
-    ].filter(Boolean).join('');
+// ── Build main panel ───────────────────────────────────────────────────────
+async function buildMainPanel(sw){
+  const main=document.getElementById('mainPanel');
+  const s=sw.last_status||'unknown';
+  const hasCpu=sw.cpu_percent!=null;
+  const hasMem=sw.mem_percent!=null;
 
-    // Graphs: full-width traffic only when no CPU/mem, otherwise 2-col
-    const graphsInner=(hasCpu||hasMem)
-      ?`<div class="sw-graphs-row">
-          <div class="graph-box"><div class="g-title">🔄 Traffic — RX / TX (Mbps)</div><canvas id="swg-t-${swId}"></canvas></div>
-          <div class="graph-box"><div class="g-title">⚙️ CPU % &amp; Memory %</div><canvas id="swg-c-${swId}"></canvas></div>
-        </div>`
-      :`<div class="graph-box" style="width:100%;"><div class="g-title">🔄 Traffic — RX / TX (Mbps)</div><canvas id="swg-t-${swId}" style="height:220px!important;"></canvas></div>`;
+  // Metric tiles
+  let tiles=`
+    <div class="mtile"><div class="mv" style="color:#1a73e8;" id="tile-ports-${sw.id}">—</div><div class="mk">Total Ports</div></div>
+    <div class="mtile"><div class="mv" style="color:#34a853;" id="tile-up-${sw.id}">—</div><div class="mk">Ports UP</div></div>
+    <div class="mtile"><div class="mv" style="color:#ea4335;" id="tile-dn-${sw.id}">—</div><div class="mk">Ports DOWN</div></div>`;
+  if(hasCpu) tiles+=`<div class="mtile"><div class="mv" style="color:#f57c00;" id="sw-detail-cpu">${sw.cpu_percent.toFixed(1)}%</div><div class="mk">CPU</div></div>`;
+  if(hasMem) tiles+=`<div class="mtile"><div class="mv" style="color:#7b1fa2;" id="sw-detail-mem">${sw.mem_percent.toFixed(1)}%</div><div class="mk">Memory</div></div>`;
+  tiles+=`<div class="mtile"><div class="mv" style="color:#555;font-size:18px;" id="sw-detail-uptime">${fmtUp(sw.uptime_seconds)}</div><div class="mk">Uptime</div></div>`;
 
-    let html=`
-    <div class="sw-metrics">${metTiles}</div>
-    <div class="sw-graphs">
-      <div class="sw-graphs-hdr">
-        <span>📊 Switch Traffic</span>
-        <div class="time-btns">
-          <button class="tb active" onclick="loadSwGraphs(${swId},1,this)">1h</button>
-          <button class="tb" onclick="loadSwGraphs(${swId},6,this)">6h</button>
-          <button class="tb" onclick="loadSwGraphs(${swId},24,this)">24h</button>
+  const graphSection=(hasCpu||hasMem)
+    ?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="graph-card">
+          <div class="graph-card-hdr"><span class="gc-title">🔄 Traffic — RX / TX (Mbps)</span>
+            <div class="time-btns">
+              <button class="tb active" onclick="loadSwGraphs(${sw.id},1,this)">1h</button>
+              <button class="tb" onclick="loadSwGraphs(${sw.id},6,this)">6h</button>
+              <button class="tb" onclick="loadSwGraphs(${sw.id},24,this)">24h</button>
+            </div>
+          </div>
+          <canvas id="swg-t-${sw.id}"></canvas>
+        </div>
+        <div class="graph-card">
+          <div class="graph-card-hdr"><span class="gc-title">⚙️ CPU % &amp; Memory %</span></div>
+          <canvas id="swg-c-${sw.id}"></canvas>
+        </div>
+      </div>`
+    :`<div class="graph-card">
+        <div class="graph-card-hdr"><span class="gc-title">🔄 Traffic — RX / TX (Mbps)</span>
+          <div class="time-btns">
+            <button class="tb active" onclick="loadSwGraphs(${sw.id},1,this)">1h</button>
+            <button class="tb" onclick="loadSwGraphs(${sw.id},6,this)">6h</button>
+            <button class="tb" onclick="loadSwGraphs(${sw.id},24,this)">24h</button>
+          </div>
+        </div>
+        <canvas id="swg-t-${sw.id}" style="height:240px!important;"></canvas>
+      </div>`;
+
+  main.innerHTML=`
+    <!-- Switch header -->
+    <div class="sw-detail-hdr">
+      <div class="sw-detail-icon">🔀</div>
+      <div class="sw-detail-info">
+        <div class="sw-detail-name">${sw.name}</div>
+        <div class="sw-detail-meta">
+          <span>🌐 ${sw.ip}</span>
+          <span>📍 ${sw.location||'—'}</span>
+          <span>🏷 ${typeLabel(sw.device_type)}</span>
+          <span>${sBadge(s)}</span>
+          ${sw.model?`<span>📦 ${sw.model}</span>`:''}
+          ${sw.firmware?`<span>💾 FW ${sw.firmware}</span>`:''}
         </div>
       </div>
-      ${graphsInner}
+      <div class="sw-detail-actions">
+        ${IS_ADMIN?`<button class="action-btn btn-edit" onclick="openEditModal(${sw.id})">✏️ Edit</button>`:''}
+        ${IS_ADMIN?`<button class="action-btn btn-delete" onclick="deleteDevice(${sw.id},'${sw.name.replace(/'/g,"\\'")}')">🗑️ Delete</button>`:''}
+      </div>
+    </div>
+
+    <!-- Metric tiles -->
+    <div class="metric-tiles">${tiles}</div>
+
+    <!-- Traffic / CPU graphs -->
+    ${graphSection}
+
+    <!-- Ports -->
+    <div class="ports-card">
+      <div class="ports-card-hdr">
+        <span>🔌 Switch Ports</span>
+        <span id="ports-last-seen" style="font-size:11px;color:#aaa;"></span>
+      </div>
+      <div id="ports-body-${sw.id}" style="padding:20px;text-align:center;color:#aaa;">⏳ Loading ports…</div>
     </div>`;
 
-    // Port table
-    if(!ports.length){
-      html+=`<div style="padding:20px;text-align:center;color:#888;font-size:13px;">No port data yet — waiting for first SNMP poll (up to 60s).</div>`;
-    }else{
-      const rows=ports.map(p=>{
-        const up=p.oper_status===1;
-        const adm=p.admin_status===1;
-        const pn=p.if_descr||p.if_name||`Port ${p.port_index}`;
-        const rx=p.rx_mbps!=null?p.rx_mbps.toFixed(3):'—';
-        const tx=p.tx_mbps!=null?p.tx_mbps.toFixed(3):'—';
-        const defaultLabel=p.custom_label||(p.ap_name||'');
-        const lbl=p.custom_label||'';
-        const apIp=p.ap_ip||'';
-        const err=(p.in_errors>0||p.out_errors>0)?`<span style="color:#ea4335;">⚠ ${p.in_errors}/${p.out_errors}</span>`:'—';
-
-        // AP IP cell
-        let apCell;
-        if(apIp){
-          const apBadge=p.ap_name
-            ?`<div style="margin-top:4px;"><span class="badge b-blue" style="cursor:pointer;font-size:11px;" onclick="toggleApPanel(${swId},${p.port_index},'${apIp}')">📡 ${p.ap_name} · 👥 ${p.sm_count} SMs · 📍 ${p.ap_location||'—'}</span></div>`
-            :`<div style="font-size:11px;color:#aaa;margin-top:3px;">IP not in sheet</div>`;
-          const editBtn=IS_ADMIN?`<button onclick="unlockApIp(${swId},${p.port_index},'${apIp}')" style="background:#fff3e0;color:#f57c00;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;margin-left:4px;">✏️</button>`:'';
-          apCell=`<code style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:4px;">${apIp}</code>${editBtn}${apBadge}`;
-        }else if(IS_ADMIN){
-          apCell=`<input type="text" placeholder="Enter AP IP…" id="apip-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;font-family:monospace;" onblur="savePortApIp(${swId},${p.port_index})">`;
-        }else{
-          apCell=`<span style="color:#ccc;">—</span>`;
-        }
-
-        const lblCell=IS_ADMIN
-          ?`<input type="text" value="${defaultLabel}" placeholder="Port label…" id="lbl-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:150px;" onblur="savePortLabel(${swId},${p.port_index})">`
-          :`<span style="font-size:12px;">${defaultLabel||'<span style="color:#ccc;">—</span>'}</span>`;
-
-        return`<tr class="port-row">
-          <td>
-            <span class="link-dot" style="background:${up?'#34a853':'#ea4335'};"></span>
-            <span class="port-num" onclick="togglePort(${swId},${p.port_index})" title="Click to expand port details">${pn}</span>
-            ${p.if_descr&&p.if_descr!==p.if_name?`<div style="font-size:10px;color:#aaa;margin-top:1px;">${p.if_name||''}</div>`:''}
-          </td>
-          <td>${lblCell}</td>
-          <td>${apCell}</td>
-          <td>${fmtSpd(p.speed_bps)}</td>
-          <td><span class="badge ${adm?'b-green':'b-red'}">${adm?'Enabled':'Disabled'}</span></td>
-          <td><span class="badge ${up?'b-green':'b-red'}">${up?'UP':'DOWN'}</span></td>
-          <td style="color:#34a853;font-weight:600;">${rx}</td>
-          <td style="color:#1a73e8;font-weight:600;">${tx}</td>
-          <td>${err}</td>
-        </tr>
-        <tr class="port-exp" id="pexp-${swId}-${p.port_index}">
-          <td colspan="9">
-            <div class="port-exp-inner">
-              <!-- Port traffic graph (full width) -->
-              <div class="graph-box" style="margin-bottom:14px;">
-                <div class="g-title" style="display:flex;align-items:center;justify-content:space-between;">
-                  <span>📈 Port Traffic — ${pn}${defaultLabel?' ('+defaultLabel+')':''}</span>
-                  <div class="time-btns">
-                    <button class="tb active" onclick="loadPortChart(${swId},${p.port_index},1,this)">1h</button>
-                    <button class="tb" onclick="loadPortChart(${swId},${p.port_index},6,this)">6h</button>
-                    <button class="tb" onclick="loadPortChart(${swId},${p.port_index},24,this)">24h</button>
-                  </div>
-                </div>
-                <canvas id="pc-${swId}-${p.port_index}"></canvas>
-              </div>
-              <!-- AP detail panel -->
-              <div id="ap-panel-${swId}-${p.port_index}">
-                ${apIp?`<div style="color:#888;font-size:13px;padding:8px 0;">Click the AP badge above to load AP details &amp; SM clients.</div>`:`<div style="color:#ccc;font-size:13px;padding:8px 0;">No AP assigned to this port yet.</div>`}
-              </div>
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
-
-      html+=`<div class="port-section">
-        <div class="port-section-hdr">🔌 Switch Ports (${ports.length})</div>
-        <div style="overflow-x:auto;">
-        <table class="port-tbl">
-          <thead><tr>
-            <th>Port</th><th>Label</th><th>AP / Device</th><th>Speed</th>
-            <th>Admin</th><th>Link</th>
-            <th style="color:#34a853;">RX Mbps</th><th style="color:#1a73e8;">TX Mbps</th>
-            <th>Errors</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table></div>
-      </div>`;
-    }
-
-    container.innerHTML=html;
-    loadSwGraphs(swId,1,container.querySelector('.tb.active'));
-  }catch(e){container.innerHTML=`<div style="color:#ea4335;padding:16px;">${e.message}</div>`;}
+  // Load graphs and ports in parallel
+  loadSwGraphs(sw.id,1,main.querySelector('.tb.active'));
+  await loadPortsTable(sw.id);
 }
 
-// ── Switch graphs ─────────────────────────────────────────────────────────────
+// ── Switch graphs ──────────────────────────────────────────────────────────
 async function loadSwGraphs(swId,hours,btn){
-  const inner=document.getElementById(`swinner-${swId}`);
-  if(inner){inner.querySelectorAll('.sw-graphs .tb').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
+  const main=document.getElementById('mainPanel');
+  if(main){main.querySelectorAll('.graph-card .tb').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
   try{
     const r=await fetch(`/api/snmp/devices/${swId}/metrics?hours=${hours}`);
     const d=await r.json();
     if(!d.success)return;
-
     const labels=d.chart.labels.map(l=>l.substring(11,16));
-
-    // Traffic chart
     const tc=document.getElementById(`swg-t-${swId}`);
     if(tc){
       const k=`swt-${swId}`;
@@ -542,12 +477,9 @@ async function loadSwGraphs(swId,hours,btn){
       swCharts[k]=new Chart(tc,{type:'line',data:{labels,datasets:[
         {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
         {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
-      ]},options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
+      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
         scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
     }
-
-    // CPU/Mem chart — only if canvas exists (i.e. device has CPU/mem data)
     const cc=document.getElementById(`swg-c-${swId}`);
     if(cc){
       const k=`swc-${swId}`;
@@ -555,14 +487,100 @@ async function loadSwGraphs(swId,hours,btn){
       swCharts[k]=new Chart(cc,{type:'line',data:{labels,datasets:[
         {label:'CPU %',data:d.metrics.map(m=>m.cpu_percent),borderColor:'#f57c00',backgroundColor:'rgba(245,124,0,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
         {label:'Mem %',data:d.metrics.map(m=>m.mem_percent),borderColor:'#7b1fa2',backgroundColor:'rgba(123,31,162,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
-      ]},options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
+      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
         scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,max:100,title:{display:true,text:'%',font:{size:10}}}}}});
     }
   }catch(e){console.error(e);}
 }
 
-// ── Port expand / chart ───────────────────────────────────────────────────────
+// ── Ports table ────────────────────────────────────────────────────────────
+async function loadPortsTable(swId){
+  const body=document.getElementById(`ports-body-${swId}`);
+  if(!body)return;
+  try{
+    const pr=await fetch(`/api/snmp/devices/${swId}/ports`);
+    const pd=await pr.json();
+    if(!pd.success){body.innerHTML=`<div style="color:#ea4335;padding:16px;">${pd.error}</div>`;return;}
+    const ports=pd.ports;
+    const upP=ports.filter(p=>p.oper_status===1).length;
+    const dnP=ports.length-upP;
+    const t=document.getElementById(`tile-ports-${swId}`);if(t)t.textContent=ports.length;
+    const u=document.getElementById(`tile-up-${swId}`);if(u)u.textContent=upP;
+    const dn=document.getElementById(`tile-dn-${swId}`);if(dn)dn.textContent=dnP;
+    if(!ports.length){body.innerHTML='<div style="padding:20px;text-align:center;color:#aaa;font-size:13px;">No port data yet — waiting for first SNMP poll (up to 60s).</div>';return;}
+    const rows=ports.map(p=>{
+      const up=p.oper_status===1;
+      const adm=p.admin_status===1;
+      const pn=p.if_descr||p.if_name||`Port ${p.port_index}`;
+      const rx=p.rx_mbps!=null?p.rx_mbps.toFixed(3):'—';
+      const tx=p.tx_mbps!=null?p.tx_mbps.toFixed(3):'—';
+      const defaultLabel=p.custom_label||(p.ap_name||'');
+      const apIp=p.ap_ip||'';
+      const err=(p.in_errors>0||p.out_errors>0)?`<span style="color:#ea4335;">⚠ ${p.in_errors}/${p.out_errors}</span>`:'—';
+      let apCell;
+      if(apIp){
+        const apBadge=p.ap_name
+          ?`<div style="margin-top:4px;"><span class="badge b-blue" style="cursor:pointer;font-size:11px;" onclick="toggleApPanel(${swId},${p.port_index},'${apIp}')">${p.ap_name} · 👥 ${p.sm_count} SMs · 📍 ${p.ap_location||'—'}</span></div>`
+          :`<div style="font-size:11px;color:#aaa;margin-top:3px;">IP not in sheet</div>`;
+        const editBtn=IS_ADMIN?`<button onclick="unlockApIp(${swId},${p.port_index},'${apIp}')" style="background:#fff3e0;color:#f57c00;border:none;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;margin-left:4px;">✏️</button>`:'';
+        apCell=`<code style="font-size:11px;background:#f1f3f4;padding:2px 7px;border-radius:4px;">${apIp}</code>${editBtn}${apBadge}`;
+      }else if(IS_ADMIN){
+        apCell=`<input type="text" placeholder="Enter AP IP…" id="apip-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;font-family:monospace;" onblur="savePortApIp(${swId},${p.port_index})">`;
+      }else{
+        apCell=`<span style="color:#ccc;">—</span>`;
+      }
+      const lblCell=IS_ADMIN
+        ?`<input type="text" value="${defaultLabel}" placeholder="Label…" id="lbl-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:140px;" onblur="savePortLabel(${swId},${p.port_index})">`
+        :`<span>${defaultLabel||'<span style="color:#ccc;">—</span>'}</span>`;
+      return`<tr class="port-row">
+        <td>
+          <span class="link-dot" style="background:${up?'#34a853':'#ea4335'};"></span>
+          <span class="port-num" onclick="togglePort(${swId},${p.port_index})">${pn}</span>
+          ${p.if_name&&p.if_name!==p.if_descr?`<div style="font-size:10px;color:#aaa;margin-top:1px;">${p.if_name}</div>`:''}
+        </td>
+        <td>${lblCell}</td>
+        <td>${apCell}</td>
+        <td>${fmtSpd(p.speed_bps)}</td>
+        <td><span class="badge ${adm?'b-green':'b-red'}">${adm?'Enabled':'Disabled'}</span></td>
+        <td><span class="badge ${up?'b-green':'b-red'}">${up?'UP':'DOWN'}</span></td>
+        <td style="color:#34a853;font-weight:600;">${rx}</td>
+        <td style="color:#1a73e8;font-weight:600;">${tx}</td>
+        <td>${err}</td>
+      </tr>
+      <tr class="port-exp" id="pexp-${swId}-${p.port_index}">
+        <td colspan="9">
+          <div class="port-exp-inner">
+            <div class="graph-card">
+              <div class="graph-card-hdr">
+                <span class="gc-title">📈 Port Traffic — ${pn}${defaultLabel?' ('+defaultLabel+')':''}</span>
+                <div class="time-btns">
+                  <button class="tb active" onclick="loadPortChart(${swId},${p.port_index},1,this)">1h</button>
+                  <button class="tb" onclick="loadPortChart(${swId},${p.port_index},6,this)">6h</button>
+                  <button class="tb" onclick="loadPortChart(${swId},${p.port_index},24,this)">24h</button>
+                </div>
+              </div>
+              <canvas id="pc-${swId}-${p.port_index}"></canvas>
+            </div>
+            <div id="ap-panel-${swId}-${p.port_index}">
+              ${apIp?`<div style="color:#888;font-size:13px;">Click the AP badge above to load AP details &amp; SM clients.</div>`:`<div style="color:#ccc;font-size:13px;">No AP assigned to this port yet.</div>`}
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    body.innerHTML=`<div style="overflow-x:auto;"><table class="port-tbl">
+      <thead><tr>
+        <th>Port</th><th>Label</th><th>AP / Device</th><th>Speed</th>
+        <th>Admin</th><th>Link</th>
+        <th style="color:#34a853;">RX Mbps</th><th style="color:#1a73e8;">TX Mbps</th>
+        <th>Errors</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }catch(e){body.innerHTML=`<div style="color:#ea4335;padding:16px;">${e.message}</div>`;}
+}
+
+// ── Port expand ────────────────────────────────────────────────────────────
 function togglePort(swId,portIdx){
   const row=document.getElementById(`pexp-${swId}-${portIdx}`);
   if(!row)return;
@@ -590,15 +608,13 @@ async function loadPortChart(swId,portIdx,hours,btn){
     portCharts[k]=new Chart(ctx,{type:'line',data:{labels:d.chart.labels,datasets:[
       {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
       {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
-    ]},options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
       scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
   }catch(e){console.error(e);}
 }
 
-// ── AP detail panel ───────────────────────────────────────────────────────────
+// ── AP panel ───────────────────────────────────────────────────────────────
 async function toggleApPanel(swId,portIdx,apIp){
-  // Ensure port row is open
   const expRow=document.getElementById(`pexp-${swId}-${portIdx}`);
   if(expRow&&expRow.style.display!=='table-row'){
     expRow.style.display='table-row';
@@ -606,11 +622,7 @@ async function toggleApPanel(swId,portIdx,apIp){
   }
   const panel=document.getElementById(`ap-panel-${swId}-${portIdx}`);
   if(!panel)return;
-  // Toggle if already loaded
-  if(panel.dataset.loaded==='1'){
-    panel.style.display=panel.style.display==='none'?'':'none';
-    return;
-  }
+  if(panel.dataset.loaded==='1'){panel.style.display=panel.style.display==='none'?'':'none';return;}
   panel.dataset.loaded='1';
   panel.innerHTML='<div style="color:#888;font-size:13px;padding:10px 0;">⏳ Loading AP details…</div>';
   await buildApPanel(panel,swId,portIdx,apIp);
@@ -618,11 +630,8 @@ async function toggleApPanel(swId,portIdx,apIp){
 
 async function buildApPanel(panel,swId,portIdx,apIp){
   try{
-    // Lookup AP info from sheet
     const lr=await fetch(`/api/snmp/lookup_ip?ip=${encodeURIComponent(apIp)}`);
     const ld=await lr.json();
-
-    // Get live SM status from device endpoint if AP is in SNMP devices
     const apDev=allDevices.find(d=>d.ip===apIp);
     let smList=[];
     if(apDev){
@@ -632,42 +641,28 @@ async function buildApPanel(panel,swId,portIdx,apIp){
     }else if(ld.success&&ld.found&&ld.role==='ap'){
       smList=(ld.sm_devices||[]).map(s=>({...s,status:'Unknown',latency:null}));
     }
-
-    const apName    =(ld.success&&ld.found)?ld.ap_name:apIp;
-    const apLoc     =(ld.success&&ld.found)?ld.location:'—';
-    const smTotal   =smList.length;
-    const smOnline  =smList.filter(s=>s.status==='Reachable').length;
-    const smOffline =smList.filter(s=>s.status==='Down').length;
-    const smUnknown =smTotal-smOnline-smOffline;
-
-    // AP SNMP metrics (if device exists)
-    const apStatus  =apDev?(apDev.last_status||'unknown'):'unknown';
-    const apUptime  =apDev?fmtUp(apDev.uptime_seconds):'—';
-    const apSignal  =apDev&&apDev.signal_dbm!=null?apDev.signal_dbm.toFixed(1)+' dBm':'—';
-    const apRx      =apDev&&apDev.rx_mbps!=null?apDev.rx_mbps.toFixed(3)+' Mbps':'—';
-    const apTx      =apDev&&apDev.tx_mbps!=null?apDev.tx_mbps.toFixed(3)+' Mbps':'—';
-    const apModel   =apDev&&apDev.model?apDev.model:'—';
-    const apFw      =apDev&&apDev.firmware?apDev.firmware:'—';
-
+    const apName=(ld.success&&ld.found)?ld.ap_name:apIp;
+    const apLoc=(ld.success&&ld.found)?ld.location:'—';
+    const smTotal=smList.length;
+    const smOnline=smList.filter(s=>s.status==='Reachable').length;
+    const smOffline=smList.filter(s=>s.status==='Down').length;
+    const smUnknown=smTotal-smOnline-smOffline;
+    const apStatus=apDev?(apDev.last_status||'unknown'):'unknown';
+    const apUptime=apDev?fmtUp(apDev.uptime_seconds):'—';
+    const apSignal=apDev&&apDev.signal_dbm!=null?apDev.signal_dbm.toFixed(1)+' dBm':'—';
+    const apRx=apDev&&apDev.rx_mbps!=null?apDev.rx_mbps.toFixed(3)+' Mbps':'—';
+    const apTx=apDev&&apDev.tx_mbps!=null?apDev.tx_mbps.toFixed(3)+' Mbps':'—';
+    const apModel=apDev&&apDev.model?apDev.model:'—';
+    const apFw=apDev&&apDev.firmware?apDev.firmware:'—';
     const graphId=`apg-${swId}-${portIdx}`;
-
     const smRows=smList.map((s,i)=>{
       const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':s.status==='Degraded'?'sm-deg':'';
-      return`<tr>
-        <td>${i+1}</td>
-        <td><code style="font-size:11px;">${s.sm_ip}</code></td>
-        <td style="color:#888;">${s.cid||'—'}</td>
-        <td>${s.device_name||'—'}</td>
-        <td>${s.location||'—'}</td>
-        <td class="${sc}">${s.status}</td>
-        <td>${s.latency!=null?s.latency+' ms':'—'}</td>
-      </tr>`;
+      return`<tr><td>${i+1}</td><td><code style="font-size:11px;">${s.sm_ip}</code></td><td style="color:#888;">${s.cid||'—'}</td><td>${s.device_name||'—'}</td><td>${s.location||'—'}</td><td class="${sc}">${s.status}</td><td>${s.latency!=null?s.latency+' ms':'—'}</td></tr>`;
     }).join('');
-
     panel.innerHTML=`
     <div class="ap-panel">
       <div class="ap-panel-hdr" onclick="toggleApBody('apbody-${swId}-${portIdx}')">
-        <span class="ap-icon">📡</span>
+        <span style="font-size:20px;">📡</span>
         <div style="flex:1;">
           <div class="ap-title">${apName}</div>
           <div class="ap-sub">🌐 ${apIp} &nbsp;·&nbsp; 📍 ${apLoc} &nbsp;·&nbsp; ${sBadge(apStatus)}</div>
@@ -675,8 +670,6 @@ async function buildApPanel(panel,swId,portIdx,apIp){
         <span style="font-size:13px;color:#aaa;">▼</span>
       </div>
       <div class="ap-panel-body open" id="apbody-${swId}-${portIdx}">
-
-        <!-- AP stats -->
         <div class="ap-stats">
           <div class="ap-stat"><div class="sv">${smTotal}</div><div class="sk">Total SMs</div></div>
           <div class="ap-stat"><div class="sv" style="color:#34a853;">${smOnline}</div><div class="sk">Online</div></div>
@@ -687,19 +680,13 @@ async function buildApPanel(panel,swId,portIdx,apIp){
           <div class="ap-stat"><div class="sv" style="font-size:14px;color:#34a853;">${apRx}</div><div class="sk">RX</div></div>
           <div class="ap-stat"><div class="sv" style="font-size:14px;color:#1a73e8;">${apTx}</div><div class="sk">TX</div></div>
         </div>
-
-        <!-- AP info row -->
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;color:#555;">
           <span>🏷 Model: <strong>${apModel}</strong></span>
           <span>💾 Firmware: <strong>${apFw}</strong></span>
           ${apDev?`<span>📶 SNMP: <strong style="color:#34a853;">Monitored</strong></span>`:`<span>📶 SNMP: <strong style="color:#aaa;">Not added</strong></span>`}
         </div>
-
-        ${apDev?`
-        <!-- AP traffic graph (full width) -->
-        <div class="graph-box" style="margin-bottom:16px;">
-          <div class="g-title" style="display:flex;align-items:center;justify-content:space-between;">
-            <span>📈 AP Traffic — ${apName}</span>
+        ${apDev?`<div class="ap-graph-box">
+          <div class="g-title"><span>📈 AP Traffic — ${apName}</span>
             <div class="time-btns">
               <button class="tb active" onclick="loadApChart(${apDev.id},'${graphId}',1,this)">1h</button>
               <button class="tb" onclick="loadApChart(${apDev.id},'${graphId}',6,this)">6h</button>
@@ -708,30 +695,23 @@ async function buildApPanel(panel,swId,portIdx,apIp){
           </div>
           <canvas id="${graphId}"></canvas>
         </div>`:''}
-
-        <!-- SM table -->
-        <div class="sm-section-title">👥 SM Clients (${smTotal})</div>
+        <div style="font-size:13px;font-weight:700;color:#1a73e8;margin-bottom:8px;">👥 SM Clients (${smTotal})</div>
         ${smRows?`<div style="overflow-x:auto;"><table class="sm-tbl">
           <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device Name</th><th>Location</th><th>Status</th><th>Latency</th></tr></thead>
-          <tbody>${smRows||'<tr><td colspan="7" style="text-align:center;color:#888;padding:12px;">No SMs found in sheet for this AP IP.</td></tr>'}</tbody>
+          <tbody>${smRows||'<tr><td colspan="7" style="text-align:center;color:#888;padding:12px;">No SMs found.</td></tr>'}</tbody>
         </table></div>`:'<div style="color:#888;font-size:13px;">No SM data found for this AP IP.</div>'}
       </div>
     </div>`;
-
     if(apDev)loadApChart(apDev.id,graphId,1,panel.querySelector('.tb.active'));
   }catch(e){panel.innerHTML=`<div style="color:#ea4335;font-size:13px;padding:8px;">${e.message}</div>`;}
 }
 
-function toggleApBody(id){
-  const el=document.getElementById(id);
-  if(el)el.classList.toggle('open');
-}
+function toggleApBody(id){const el=document.getElementById(id);if(el)el.classList.toggle('open');}
 
 async function loadApChart(devId,canvasId,hours,btn){
   const canvas=document.getElementById(canvasId);
   if(!canvas)return;
-  // Update time buttons in same container
-  const wrap=canvas.closest('.graph-box');
+  const wrap=canvas.closest('.ap-graph-box');
   if(wrap){wrap.querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
   const k=`apc-${devId}-${canvasId}`;
   try{
@@ -742,13 +722,12 @@ async function loadApChart(devId,canvasId,hours,btn){
     apCharts[k]=new Chart(canvas,{type:'line',data:{labels:d.chart.labels.map(l=>l.substring(11,16)),datasets:[
       {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
       {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
-    ]},options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
       scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
   }catch(e){console.error(e);}
 }
 
-// ── Port label / AP IP save ───────────────────────────────────────────────────
+// ── Port label / AP IP ─────────────────────────────────────────────────────
 async function savePortLabel(swId,portIdx){
   const el=document.getElementById(`lbl-${swId}-${portIdx}`);
   if(!el)return;
@@ -760,14 +739,11 @@ async function savePortApIp(swId,portIdx){
   if(!el)return;
   const r=await fetch(`/api/snmp/devices/${swId}/ports/${portIdx}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ap_ip:el.value.trim()})});
   const d=await r.json();
-  if(d.success){
-    const inner=document.getElementById(`swinner-${swId}`);
-    if(inner){inner.dataset.loaded='';await buildSwBody(swId,inner);}
-  }
+  if(d.success)await loadPortsTable(swId);
 }
 
 function unlockApIp(swId,portIdx,cur){
-  const codes=document.querySelectorAll(`#swinner-${swId} code`);
+  const codes=document.querySelectorAll(`#ports-body-${swId} code`);
   for(const el of codes){
     if(el.textContent.trim()===cur){
       const td=el.closest('td');
@@ -780,7 +756,7 @@ function unlockApIp(swId,portIdx,cur){
   }
 }
 
-// ── Add/Edit Modal ────────────────────────────────────────────────────────────
+// ── Add/Edit Modal ─────────────────────────────────────────────────────────
 function openAddModal(){
   document.getElementById('modalTitle').textContent='Add SNMP Device';
   ['editDeviceId','fName','fIp','fLocation','fModel','fMac','fFirmware','fDesc'].forEach(id=>document.getElementById(id).value='');
@@ -791,54 +767,7 @@ function openAddModal(){
   document.getElementById('fPort').value='161';
   document.getElementById('testResult').style.display='none';
   document.getElementById('lookupBanner').style.display='none';
-  document.getElementById('fSwitchId').value='';
-  document.getElementById('fPortIndex').innerHTML='<option value="">— Select port —</option>';
-  loadSwitchesDropdown();
   document.getElementById('deviceModal').classList.add('show');
-}
-
-async function loadSwitchesDropdown(){
-  try{
-    const r=await fetch('/api/snmp/switches');
-    const d=await r.json();
-    if(!d.success)return;
-    const sel=document.getElementById('fSwitchId');
-    sel.innerHTML='<option value="">— No switch —</option>'+d.switches.map(s=>`<option value="${s.id}">${s.name} (${s.ip})</option>`).join('');
-    window._swData=d.switches;
-  }catch(e){}
-}
-
-function loadSwitchPorts(){
-  const swId=parseInt(document.getElementById('fSwitchId').value);
-  const ps=document.getElementById('fPortIndex');
-  ps.innerHTML='<option value="">— Select port —</option>';
-  if(!swId||!window._swData)return;
-  const sw=window._swData.find(s=>s.id===swId);
-  if(!sw||!sw.ports.length){ps.innerHTML='<option value="">No ports yet</option>';return;}
-  sw.ports.forEach(p=>{
-    const l=p.custom_label?` — ${p.custom_label}`:'';
-    const a=p.ap_ip?` [${p.ap_ip}]`:'';
-    ps.innerHTML+=`<option value="${p.port_index}">${p.if_name||p.if_descr||'Port '+p.port_index}${l}${a}</option>`;
-  });
-}
-
-async function lookupIp(){
-  const ip=document.getElementById('fIp').value.trim();
-  if(!ip)return;
-  const banner=document.getElementById('lookupBanner');
-  try{
-    const r=await fetch(`/api/snmp/lookup_ip?ip=${encodeURIComponent(ip)}`);
-    const d=await r.json();
-    if(!d.success||!d.found){banner.style.display='none';return;}
-    if(!document.getElementById('fName').value)document.getElementById('fName').value=d.ap_name||d.device_name||'';
-    if(!document.getElementById('fLocation').value)document.getElementById('fLocation').value=d.location||'';
-    if(d.role==='ap'){
-      if(document.getElementById('fType').value==='generic')document.getElementById('fType').value='epmp';
-      banner.style.display='block';banner.innerHTML=`📡 Found AP: <strong>${d.ap_name}</strong> — ${d.sm_count} SM(s)`;
-    }else if(d.role==='sm'){
-      banner.style.display='block';banner.innerHTML=`📶 Found SM: <strong>${d.device_name}</strong> (CID: ${d.cid}) — AP: ${d.ap_name} (${d.ap_ip})`;
-    }
-  }catch(e){}
 }
 
 function openEditModal(deviceId){
@@ -861,6 +790,25 @@ function openEditModal(deviceId){
   document.getElementById('testResult').style.display='none';
   document.getElementById('lookupBanner').style.display='none';
   document.getElementById('deviceModal').classList.add('show');
+}
+
+async function lookupIp(){
+  const ip=document.getElementById('fIp').value.trim();
+  if(!ip)return;
+  const banner=document.getElementById('lookupBanner');
+  try{
+    const r=await fetch(`/api/snmp/lookup_ip?ip=${encodeURIComponent(ip)}`);
+    const d=await r.json();
+    if(!d.success||!d.found){banner.style.display='none';return;}
+    if(!document.getElementById('fName').value)document.getElementById('fName').value=d.ap_name||d.device_name||'';
+    if(!document.getElementById('fLocation').value)document.getElementById('fLocation').value=d.location||'';
+    if(d.role==='ap'){
+      if(document.getElementById('fType').value==='generic')document.getElementById('fType').value='epmp';
+      banner.style.display='block';banner.innerHTML=`📡 Found AP: <strong>${d.ap_name}</strong> — ${d.sm_count} SM(s)`;
+    }else if(d.role==='sm'){
+      banner.style.display='block';banner.innerHTML=`📶 Found SM: <strong>${d.device_name}</strong> (CID: ${d.cid}) — AP: ${d.ap_name} (${d.ap_ip})`;
+    }
+  }catch(e){}
 }
 
 async function testSnmp(){
@@ -899,15 +847,8 @@ async function saveDevice(){
     const method=editId?'PUT':'POST';
     const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await r.json();
-    if(d.success){
-      const swId=document.getElementById('fSwitchId').value;
-      const portIdx=document.getElementById('fPortIndex').value;
-      if(swId&&portIdx){
-        await fetch(`/api/snmp/devices/${swId}/ports/${portIdx}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ap_ip:ip})});
-      }
-      closeModal('deviceModal');
-      loadAll();
-    }else{showAlert('Error',d.error||'Save failed');}
+    if(d.success){closeModal('deviceModal');loadAll();}
+    else showAlert('Error',d.error||'Save failed');
   }catch(e){showAlert('Error','Request failed: '+e.message);}
 }
 
@@ -916,7 +857,7 @@ function deleteDevice(deviceId,name){
     try{
       const r=await fetch(`/api/snmp/devices/${deviceId}`,{method:'DELETE'});
       const d=await r.json();
-      if(d.success)loadAll();
+      if(d.success){if(activeSwitchId===deviceId){activeSwitchId=null;document.getElementById('mainPanel').innerHTML='<div class="empty-state"><div class="es-icon">🔀</div><p>Select a switch from the sidebar</p></div>';}loadAll();}
       else showAlert('Error',d.error||'Delete failed');
     }catch(e){showAlert('Error','Request failed: '+e.message);}
   });
