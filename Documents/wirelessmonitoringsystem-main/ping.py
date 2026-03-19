@@ -7534,10 +7534,8 @@ def api_snmp_device_metrics(device_id):
                        (device_id, f'-{hours} hours'))
         rows = [dict(r) for r in cursor.fetchall()]
         conn.close()
-        # Build chart-friendly series
         labels = [r['timestamp'] for r in rows]
-        rx_series = []
-        tx_series = []
+        rx_series, tx_series = [], []
         for r in rows:
             try:
                 ifaces = json.loads(r.get('interfaces_json') or '[]')
