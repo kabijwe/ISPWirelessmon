@@ -395,31 +395,40 @@ async function buildSwBody(swId,container){
     const sw=allDevices.find(d=>d.id===swId)||{};
     const upP=ports.filter(p=>p.oper_status===1).length;
     const dnP=ports.length-upP;
-    const cpu=sw.cpu_percent!=null?sw.cpu_percent.toFixed(1)+'%':'—';
-    const mem=sw.mem_percent!=null?sw.mem_percent.toFixed(1)+'%':'—';
+    const hasCpu=sw.cpu_percent!=null;
+    const hasMem=sw.mem_percent!=null;
+    const hasUptime=sw.uptime_seconds!=null;
+
+    // Build metrics bar — only show tiles that have real data
+    const metTiles=[
+      `<div class="sw-met"><div class="mv" style="color:#1a73e8;">${ports.length}</div><div class="mk">Total Ports</div></div>`,
+      `<div class="sw-met"><div class="mv" style="color:#34a853;">${upP}</div><div class="mk">Ports UP</div></div>`,
+      `<div class="sw-met"><div class="mv" style="color:#ea4335;">${dnP}</div><div class="mk">Ports DOWN</div></div>`,
+      hasCpu?`<div class="sw-met"><div class="mv" style="color:#f57c00;">${sw.cpu_percent.toFixed(1)}%</div><div class="mk">CPU</div></div>`:'',
+      hasMem?`<div class="sw-met"><div class="mv" style="color:#7b1fa2;">${sw.mem_percent.toFixed(1)}%</div><div class="mk">Memory</div></div>`:'',
+      hasUptime?`<div class="sw-met"><div class="mv" style="color:#555;font-size:16px;">${fmtUp(sw.uptime_seconds)}</div><div class="mk">Uptime</div></div>`:'',
+    ].filter(Boolean).join('');
+
+    // Graphs: full-width traffic only when no CPU/mem, otherwise 2-col
+    const graphsInner=(hasCpu||hasMem)
+      ?`<div class="sw-graphs-row">
+          <div class="graph-box"><div class="g-title">🔄 Traffic — RX / TX (Mbps)</div><canvas id="swg-t-${swId}"></canvas></div>
+          <div class="graph-box"><div class="g-title">⚙️ CPU % &amp; Memory %</div><canvas id="swg-c-${swId}"></canvas></div>
+        </div>`
+      :`<div class="graph-box" style="width:100%;"><div class="g-title">🔄 Traffic — RX / TX (Mbps)</div><canvas id="swg-t-${swId}" style="height:220px!important;"></canvas></div>`;
 
     let html=`
-    <div class="sw-metrics">
-      <div class="sw-met"><div class="mv" style="color:#1a73e8;">${ports.length}</div><div class="mk">Total Ports</div></div>
-      <div class="sw-met"><div class="mv" style="color:#34a853;">${upP}</div><div class="mk">Ports UP</div></div>
-      <div class="sw-met"><div class="mv" style="color:#ea4335;">${dnP}</div><div class="mk">Ports DOWN</div></div>
-      <div class="sw-met"><div class="mv" style="color:#f57c00;">${cpu}</div><div class="mk">CPU</div></div>
-      <div class="sw-met"><div class="mv" style="color:#7b1fa2;">${mem}</div><div class="mk">Memory</div></div>
-      <div class="sw-met"><div class="mv" style="color:#555;">${fmtUp(sw.uptime_seconds)}</div><div class="mk">Uptime</div></div>
-    </div>
+    <div class="sw-metrics">${metTiles}</div>
     <div class="sw-graphs">
       <div class="sw-graphs-hdr">
-        <span>📊 Switch Performance Graphs</span>
+        <span>📊 Switch Traffic</span>
         <div class="time-btns">
           <button class="tb active" onclick="loadSwGraphs(${swId},1,this)">1h</button>
           <button class="tb" onclick="loadSwGraphs(${swId},6,this)">6h</button>
           <button class="tb" onclick="loadSwGraphs(${swId},24,this)">24h</button>
         </div>
       </div>
-      <div class="sw-graphs-row">
-        <div class="graph-box"><div class="g-title">🔄 Traffic — RX / TX (Mbps)</div><canvas id="swg-t-${swId}"></canvas></div>
-        <div class="graph-box"><div class="g-title">⚙️ CPU % &amp; Memory %</div><canvas id="swg-c-${swId}"></canvas></div>
-      </div>
+      ${graphsInner}
     </div>`;
 
     // Port table
@@ -538,7 +547,7 @@ async function loadSwGraphs(swId,hours,btn){
         scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
     }
 
-    // CPU/Mem chart
+    // CPU/Mem chart — only if canvas exists (i.e. device has CPU/mem data)
     const cc=document.getElementById(`swg-c-${swId}`);
     if(cc){
       const k=`swc-${swId}`;
