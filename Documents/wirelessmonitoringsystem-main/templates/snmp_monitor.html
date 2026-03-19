@@ -429,9 +429,10 @@ async function buildSwBody(swId,container){
       const rows=ports.map(p=>{
         const up=p.oper_status===1;
         const adm=p.admin_status===1;
-        const pn=p.if_name||p.if_descr||`Port ${p.port_index}`;
+        const pn=p.if_descr||p.if_name||`Port ${p.port_index}`;
         const rx=p.rx_mbps!=null?p.rx_mbps.toFixed(3):'—';
         const tx=p.tx_mbps!=null?p.tx_mbps.toFixed(3):'—';
+        const defaultLabel=p.custom_label||(p.ap_name||'');
         const lbl=p.custom_label||'';
         const apIp=p.ap_ip||'';
         const err=(p.in_errors>0||p.out_errors>0)?`<span style="color:#ea4335;">⚠ ${p.in_errors}/${p.out_errors}</span>`:'—';
@@ -451,14 +452,14 @@ async function buildSwBody(swId,container){
         }
 
         const lblCell=IS_ADMIN
-          ?`<input type="text" value="${lbl}" placeholder="Port label…" id="lbl-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:150px;" onblur="savePortLabel(${swId},${p.port_index})">`
-          :`<span style="font-size:12px;">${lbl||'<span style="color:#ccc;">—</span>'}</span>`;
+          ?`<input type="text" value="${defaultLabel}" placeholder="Port label…" id="lbl-${swId}-${p.port_index}" style="border:1px solid #ddd;border-radius:5px;padding:3px 8px;font-size:11px;width:150px;" onblur="savePortLabel(${swId},${p.port_index})">`
+          :`<span style="font-size:12px;">${defaultLabel||'<span style="color:#ccc;">—</span>'}</span>`;
 
         return`<tr class="port-row">
           <td>
             <span class="link-dot" style="background:${up?'#34a853':'#ea4335'};"></span>
             <span class="port-num" onclick="togglePort(${swId},${p.port_index})" title="Click to expand port details">${pn}</span>
-            ${p.if_descr&&p.if_descr!==p.if_name?`<div style="font-size:10px;color:#aaa;margin-top:1px;">${p.if_descr}</div>`:''}
+            ${p.if_descr&&p.if_descr!==p.if_name?`<div style="font-size:10px;color:#aaa;margin-top:1px;">${p.if_name||''}</div>`:''}
           </td>
           <td>${lblCell}</td>
           <td>${apCell}</td>
@@ -475,7 +476,7 @@ async function buildSwBody(swId,container){
               <!-- Port traffic graph (full width) -->
               <div class="graph-box" style="margin-bottom:14px;">
                 <div class="g-title" style="display:flex;align-items:center;justify-content:space-between;">
-                  <span>📈 Port Traffic — ${pn}${lbl?' ('+lbl+')':''}</span>
+                  <span>📈 Port Traffic — ${pn}${defaultLabel?' ('+defaultLabel+')':''}</span>
                   <div class="time-btns">
                     <button class="tb active" onclick="loadPortChart(${swId},${p.port_index},1,this)">1h</button>
                     <button class="tb" onclick="loadPortChart(${swId},${p.port_index},6,this)">6h</button>

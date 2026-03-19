@@ -6945,23 +6945,43 @@ def test_maintenance():
 
 SNMP_OID_PROFILES = {
     'raisecom': {
+        # Raisecom vendor OIDs (primary)
         'cpu':      '1.3.6.1.4.1.8886.1.1.1.1.1.0',
         'mem':      '1.3.6.1.4.1.8886.1.1.1.1.2.0',
+        # Standard fallback CPU (HOST-RESOURCES-MIB hrProcessorLoad)
+        'cpu_alt':  '1.3.6.1.2.1.25.3.3.1.2.1',
+        # Standard fallback mem used% (HOST-RESOURCES-MIB)
+        'mem_alt_used':  '1.3.6.1.2.1.25.2.3.1.6.1',
+        'mem_alt_total': '1.3.6.1.2.1.25.2.3.1.5.1',
         'uptime':   '1.3.6.1.2.1.1.3.0',
-        'if_in':    '1.3.6.1.2.1.2.2.1.10',
-        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',  # ifHCInOctets (64-bit)
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',  # ifHCOutOctets (64-bit)
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
         'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
     },
     'edgecore': {
+        # Edgecore/Accton vendor OIDs
         'cpu':      '1.3.6.1.4.1.259.10.1.46.1.8.2.1.0',
         'mem':      '1.3.6.1.4.1.259.10.1.46.1.8.1.1.0',
+        # Alternative Edgecore OIDs
+        'cpu_alt':  '1.3.6.1.4.1.259.10.1.46.1.8.2.1.1',
         'uptime':   '1.3.6.1.2.1.1.3.0',
-        'if_in':    '1.3.6.1.2.1.2.2.1.10',
-        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
         'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
     },
     'epmp': {
         'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
         'rx_tp':    '1.3.6.1.4.1.17713.21.1.2.18.0',
         'tx_tp':    '1.3.6.1.4.1.17713.21.1.2.19.0',
         'signal':   '1.3.6.1.4.1.17713.21.1.2.2.0',
@@ -6970,6 +6990,7 @@ SNMP_OID_PROFILES = {
     },
     'powerbeam': {
         'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
         'signal':   '1.3.6.1.4.1.41112.1.4.5.1.4.1',
         'if_in':    '1.3.6.1.2.1.2.2.1.10',
         'if_out':   '1.3.6.1.2.1.2.2.1.16',
@@ -6977,8 +6998,17 @@ SNMP_OID_PROFILES = {
     },
     'generic': {
         'uptime':   '1.3.6.1.2.1.1.3.0',
-        'if_in':    '1.3.6.1.2.1.2.2.1.10',
-        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        # Standard HOST-RESOURCES CPU/mem
+        'cpu_alt':  '1.3.6.1.2.1.25.3.3.1.2.1',
+        'mem_alt_used':  '1.3.6.1.2.1.25.2.3.1.6.1',
+        'mem_alt_total': '1.3.6.1.2.1.25.2.3.1.5.1',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
         'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
     }
 }
@@ -7061,7 +7091,7 @@ def snmp_poll_device(device):
             _store_snmp_metric(device_id, now, status, None, None, None, [], None, None, None)
             return
 
-        # CPU
+        # CPU — try vendor OID first, then standard fallback
         if 'cpu' in profile:
             cpu_val = _snmp_get(ip, community, profile['cpu'])
             if cpu_val is not None:
@@ -7069,13 +7099,31 @@ def snmp_poll_device(device):
                     cpu_percent = float(cpu_val)
                 except Exception:
                     pass
+        if cpu_percent is None and 'cpu_alt' in profile:
+            cpu_val = _snmp_get(ip, community, profile['cpu_alt'])
+            if cpu_val is not None:
+                try:
+                    cpu_percent = float(cpu_val)
+                except Exception:
+                    pass
 
-        # Memory
+        # Memory — try vendor OID first, then HOST-RESOURCES-MIB ratio
         if 'mem' in profile:
             mem_val = _snmp_get(ip, community, profile['mem'])
             if mem_val is not None:
                 try:
                     mem_percent = float(mem_val)
+                except Exception:
+                    pass
+        if mem_percent is None and 'mem_alt_used' in profile and 'mem_alt_total' in profile:
+            used_val  = _snmp_get(ip, community, profile['mem_alt_used'])
+            total_val = _snmp_get(ip, community, profile['mem_alt_total'])
+            if used_val is not None and total_val is not None:
+                try:
+                    used  = float(used_val)
+                    total = float(total_val)
+                    if total > 0:
+                        mem_percent = round((used / total) * 100, 1)
                 except Exception:
                     pass
 
@@ -7091,9 +7139,13 @@ def snmp_poll_device(device):
                 except Exception:
                     pass
 
-        # Interface traffic via WALK
+        # Interface traffic via WALK — try HC (64-bit) first, fall back to 32-bit
         if_in_data = _snmp_walk(ip, community, profile['if_in'])
+        if not if_in_data and 'if_in_32' in profile:
+            if_in_data = _snmp_walk(ip, community, profile['if_in_32'])
         if_out_data = _snmp_walk(ip, community, profile['if_out'])
+        if not if_out_data and 'if_out_32' in profile:
+            if_out_data = _snmp_walk(ip, community, profile['if_out_32'])
         if_names = {}
         if 'if_name' in profile:
             for oid_str, val in _snmp_walk(ip, community, profile['if_name']):
