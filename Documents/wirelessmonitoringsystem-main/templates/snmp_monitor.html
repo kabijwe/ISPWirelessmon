@@ -113,8 +113,10 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .sm-tbl tbody tr:hover{background:#f0f4ff;}
 .sm-tbl tbody td{padding:10px 14px;color:#333;}
 .sm-tbl tbody td code{font-size:12px;background:#e8eaf6;color:#3949ab;padding:2px 8px;border-radius:4px;font-weight:600;}
-.sm-up{color:#34a853;font-weight:700;}.sm-down{color:#ea4335;font-weight:700;}.sm-deg{color:#fbbc04;font-weight:700;}
-.sm-unknown{color:#888;font-weight:600;}
+.sm-up{background:#e6f4ea;color:#1e8e3e;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
+.sm-down{background:#fce8e6;color:#c5221f;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
+.sm-deg{background:#fff3e0;color:#e65100;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
+.sm-unknown{background:#f1f3f4;color:#5f6368;font-weight:600;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
 .sm-main-row:hover{background:#f0f4ff;}
 .sm-expand-btn{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:#e8eaf6;color:#3949ab;border-radius:5px;font-size:16px;font-weight:700;cursor:pointer;user-select:none;}
 
@@ -680,7 +682,7 @@ async function buildApPanel(panel,swId,portIdx,apIp){
 
     // Build SM rows — each SM gets a summary row + expandable SNMP detail card
     const smRowsHtml=smList.map((s,i)=>{
-      const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':s.status==='Degraded'?'sm-deg':'sm-unknown';
+      const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':(s.status==='Degraded'||s.status==='Loss'||s.status==='High Latency')?'sm-deg':'sm-unknown';
       const hasSnmp=s.snmp_id!=null;
       const snmpStatus=s.snmp_status||'unknown';
       const signal=s.signal_dbm!=null?`${s.signal_dbm.toFixed(1)} dBm`:'—';
