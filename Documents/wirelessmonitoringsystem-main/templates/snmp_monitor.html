@@ -113,6 +113,8 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .sm-tbl tbody td code{font-size:12px;background:#e8f0fe;color:#1a73e8;padding:2px 8px;border-radius:4px;font-weight:600;}
 .sm-up{color:#34a853;font-weight:700;}.sm-down{color:#ea4335;font-weight:700;}.sm-deg{color:#fbbc04;font-weight:700;}
 .sm-unknown{color:#888;font-weight:600;}
+.sm-main-row:hover{background:#f0f4ff;}
+.sm-expand-btn{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:#e8f0fe;color:#1a73e8;border-radius:5px;font-size:16px;font-weight:700;cursor:pointer;user-select:none;}
 
 /* ── Badges ── */
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
@@ -673,59 +675,71 @@ async function buildApPanel(panel,swId,portIdx,apIp){
     const apModel=apDev&&apDev.model?apDev.model:'—';
     const apFw=apDev&&apDev.firmware?apDev.firmware:'—';
     const graphId=`apg-${swId}-${portIdx}`;
-    const smRows=smList.map((s,i)=>{
+
+    // Build SM rows — each SM gets a summary row + expandable SNMP detail card
+    const smRowsHtml=smList.map((s,i)=>{
       const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':s.status==='Degraded'?'sm-deg':'sm-unknown';
-      // Check if this SM has SNMP monitoring enabled
-      const smDev=allDevices.find(d=>d.ip===s.sm_ip);
-      const snmpBadge=smDev
-        ?`<span class="badge b-green" style="font-size:10px;">📶 SNMP</span>`
-        :'';
-      const signal=smDev&&smDev.signal_dbm!=null?`<span style="color:#7b1fa2;font-weight:600;">${smDev.signal_dbm.toFixed(1)} dBm</span>`:'<span style="color:#ccc;">—</span>';
-      const smRx=smDev&&smDev.rx_mbps!=null?`<span style="color:#34a853;font-weight:600;">${smDev.rx_mbps.toFixed(3)}</span>`:'<span style="color:#ccc;">—</span>';
-      const smTx=smDev&&smDev.tx_mbps!=null?`<span style="color:#1a73e8;font-weight:600;">${smDev.tx_mbps.toFixed(3)}</span>`:'<span style="color:#ccc;">—</span>';
-      const smUp=smDev?`<span style="font-size:12px;">${fmtUp(smDev.uptime_seconds)}</span>`:'<span style="color:#ccc;">—</span>';
-      const expandBtn=smDev
-        ?`<button onclick="toggleSmGraph('smexp-${swId}-${portIdx}-${i}',${smDev.id})" style="background:#e8f0fe;color:#1a73e8;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-weight:600;">📈</button>`
-        :'';
-      const smGraphRow=smDev?`<tr id="smexp-${swId}-${portIdx}-${i}" style="display:none;background:#f0f4ff;">
-        <td colspan="11" style="padding:12px 16px;">
-          <div class="ap-graph-box" style="margin:0;">
-            <div class="g-title">
-              <span>📈 SM Traffic — ${s.device_name||s.sm_ip}</span>
-              <div class="time-btns">
-                <button class="tb active" onclick="loadSmChart(${smDev.id},'smcvs-${swId}-${portIdx}-${i}',1,this)">1h</button>
-                <button class="tb" onclick="loadSmChart(${smDev.id},'smcvs-${swId}-${portIdx}-${i}',6,this)">6h</button>
-                <button class="tb" onclick="loadSmChart(${smDev.id},'smcvs-${swId}-${portIdx}-${i}',24,this)">24h</button>
-              </div>
+      const hasSnmp=s.snmp_id!=null;
+      const snmpStatus=s.snmp_status||'unknown';
+      const signal=s.signal_dbm!=null?`${s.signal_dbm.toFixed(1)} dBm`:'—';
+      const smRx=s.rx_mbps!=null?s.rx_mbps.toFixed(3):'—';
+      const smTx=s.tx_mbps!=null?s.tx_mbps.toFixed(3):'—';
+      const smUp=s.uptime_seconds?fmtUp(s.uptime_seconds):'—';
+
+      const snmpBadge=hasSnmp
+        ?`<span class="badge b-green" style="font-size:10px;margin-left:5px;">📶 SNMP</span>`:'';
+
+      // Expandable SNMP detail card (only for SNMP-enabled SMs)
+      const expandRow=hasSnmp?`
+      <tr id="smexp-${swId}-${portIdx}-${i}" style="display:none;background:#f0f6ff;">
+        <td colspan="8" style="padding:0;">
+          <div style="padding:14px 20px;display:flex;flex-direction:column;gap:12px;">
+            <!-- SM stat tiles -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <div class="ap-stat"><div class="sv" style="font-size:15px;">${sBadge(snmpStatus)}</div><div class="sk">SNMP Status</div></div>
+              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#7b1fa2;">${signal}</div><div class="sk">Signal</div></div>
+              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#34a853;">${smRx}</div><div class="sk">RX Mbps</div></div>
+              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#1a73e8;">${smTx}</div><div class="sk">TX Mbps</div></div>
+              <div class="ap-stat"><div class="sv" style="font-size:15px;">${smUp}</div><div class="sk">Uptime</div></div>
+              ${s.model?`<div class="ap-stat"><div class="sv" style="font-size:13px;">${s.model}</div><div class="sk">Model</div></div>`:''}
+              ${s.firmware?`<div class="ap-stat"><div class="sv" style="font-size:13px;">${s.firmware}</div><div class="sk">Firmware</div></div>`:''}
             </div>
-            <canvas id="smcvs-${swId}-${portIdx}-${i}"></canvas>
+            <!-- SM traffic graph -->
+            <div class="ap-graph-box" style="margin:0;">
+              <div class="g-title">
+                <span>📈 SM Traffic — ${s.device_name||s.sm_ip}</span>
+                <div class="time-btns">
+                  <button class="tb active" onclick="loadSmChart(${s.snmp_id},'smcvs-${swId}-${portIdx}-${i}',1,this)">1h</button>
+                  <button class="tb" onclick="loadSmChart(${s.snmp_id},'smcvs-${swId}-${portIdx}-${i}',6,this)">6h</button>
+                  <button class="tb" onclick="loadSmChart(${s.snmp_id},'smcvs-${swId}-${portIdx}-${i}',24,this)">24h</button>
+                </div>
+              </div>
+              <canvas id="smcvs-${swId}-${portIdx}-${i}"></canvas>
+            </div>
           </div>
         </td>
       </tr>`:'';
-      return`<tr>
-        <td style="color:#888;font-weight:600;">${i+1}</td>
-        <td><code>${s.sm_ip}</code> ${snmpBadge}</td>
+
+      return`<tr class="sm-main-row" style="cursor:${hasSnmp?'pointer':'default'};" onclick="${hasSnmp?`toggleSmRow('smexp-${swId}-${portIdx}-${i}',${s.snmp_id},'smcvs-${swId}-${portIdx}-${i}',this)`:''}">
+        <td style="color:#888;font-weight:600;width:32px;">${i+1}</td>
+        <td><code>${s.sm_ip}</code>${snmpBadge}</td>
         <td style="color:#555;">${s.cid||'—'}</td>
         <td style="font-weight:500;">${s.device_name||'—'}</td>
         <td>${s.location||'—'}</td>
         <td class="${sc}">${s.status}</td>
-        <td style="font-family:monospace;">${s.latency!=null?s.latency+' ms':'—'}</td>
-        <td>${signal}</td>
-        <td>${smRx}</td>
-        <td>${smTx}</td>
-        <td>${smUp}</td>
-        <td>${expandBtn}</td>
-      </tr>${smGraphRow}`;
+        <td style="font-family:monospace;color:#555;">${s.latency!=null?s.latency+' ms':'—'}</td>
+        <td style="text-align:center;">${hasSnmp?`<span class="sm-expand-btn" id="smtoggle-${swId}-${portIdx}-${i}">＋</span>`:''}</td>
+      </tr>${expandRow}`;
     }).join('');
     panel.innerHTML=`
     <div class="ap-panel">
-      <div class="ap-panel-hdr" onclick="toggleApBody('apbody-${swId}-${portIdx}')">
+      <div class="ap-panel-hdr" onclick="toggleApBody('apbody-${swId}-${portIdx}','aptoggle-${swId}-${portIdx}')">
         <span style="font-size:20px;">📡</span>
         <div style="flex:1;">
           <div class="ap-title">${apName}</div>
           <div class="ap-sub">🌐 ${apIp} &nbsp;·&nbsp; 📍 ${apLoc} &nbsp;·&nbsp; ${sBadge(apStatus)}</div>
         </div>
-        <span style="font-size:13px;color:#aaa;">▼</span>
+        <span id="aptoggle-${swId}-${portIdx}" style="font-size:22px;font-weight:700;color:#1a73e8;width:28px;text-align:center;line-height:1;user-select:none;">−</span>
       </div>
       <div class="ap-panel-body open" id="apbody-${swId}-${portIdx}">
         <div class="ap-stats">
@@ -735,12 +749,12 @@ async function buildApPanel(panel,swId,portIdx,apIp){
           <div class="ap-stat"><div class="sv" style="color:#fbbc04;">${smUnknown}</div><div class="sk">Unknown</div></div>
           <div class="ap-stat"><div class="sv" style="font-size:14px;">${apUptime}</div><div class="sk">Uptime</div></div>
           <div class="ap-stat"><div class="sv" style="font-size:14px;">${apSignal}</div><div class="sk">Signal</div></div>
-          <div class="ap-stat"><div class="sv" style="font-size:14px;color:#34a853;">${apRx}</div><div class="sk">RX</div></div>
-          <div class="ap-stat"><div class="sv" style="font-size:14px;color:#1a73e8;">${apTx}</div><div class="sk">TX</div></div>
+          <div class="ap-stat"><div class="sv" style="font-size:14px;color:#34a853;">${apRx}</div><div class="sk">RX Mbps</div></div>
+          <div class="ap-stat"><div class="sv" style="font-size:14px;color:#1a73e8;">${apTx}</div><div class="sk">TX Mbps</div></div>
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;color:#555;">
-          <span>🏷 Model: <strong>${apModel}</strong></span>
-          <span>💾 Firmware: <strong>${apFw}</strong></span>
+          ${apDev&&apDev.model?`<span>🏷 Model: <strong>${apDev.model}</strong></span>`:''}
+          ${apDev&&apDev.firmware?`<span>💾 Firmware: <strong>${apDev.firmware}</strong></span>`:''}
           ${apDev?`<span>📶 SNMP: <strong style="color:#34a853;">Monitored</strong></span>`:`<span>📶 SNMP: <strong style="color:#aaa;">Not added</strong></span>`}
         </div>
         ${apDev?`<div class="ap-graph-box">
@@ -753,10 +767,10 @@ async function buildApPanel(panel,swId,portIdx,apIp){
           </div>
           <canvas id="${graphId}"></canvas>
         </div>`:''}
-        <div style="font-size:13px;font-weight:700;color:#1a73e8;margin-bottom:8px;">👥 SM Clients (${smTotal})</div>
-        ${smRows?`<div style="overflow-x:auto;"><table class="sm-tbl">
-          <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device Name</th><th>Location</th><th>Status</th><th>Latency</th><th>Signal</th><th style="color:#34a853;">RX Mbps</th><th style="color:#1a73e8;">TX Mbps</th><th>Uptime</th><th></th></tr></thead>
-          <tbody>${smRows||'<tr><td colspan="12" style="text-align:center;color:#888;padding:12px;">No SMs found.</td></tr>'}</tbody>
+        <div style="font-size:13px;font-weight:700;color:#1a73e8;margin-bottom:8px;margin-top:4px;">👥 SM Clients (${smTotal})</div>
+        ${smRowsHtml?`<div style="overflow-x:auto;"><table class="sm-tbl">
+          <thead><tr><th>#</th><th>SM IP</th><th>CID</th><th>Device Name</th><th>Location</th><th>Status</th><th>Latency</th><th style="width:36px;"></th></tr></thead>
+          <tbody>${smRowsHtml}</tbody>
         </table></div>`:'<div style="color:#888;font-size:13px;">No SM data found for this AP IP.</div>'}
       </div>
     </div>`;
@@ -764,18 +778,28 @@ async function buildApPanel(panel,swId,portIdx,apIp){
   }catch(e){panel.innerHTML=`<div style="color:#ea4335;font-size:13px;padding:8px;">${e.message}</div>`;}
 }
 
-function toggleApBody(id){const el=document.getElementById(id);if(el)el.classList.toggle('open');}
+function toggleApBody(id,toggleId){
+  const el=document.getElementById(id);
+  const btn=document.getElementById(toggleId);
+  if(!el)return;
+  const open=el.classList.toggle('open');
+  if(btn)btn.textContent=open?'−':'＋';
+}
 
-function toggleSmGraph(rowId,devId){
+function toggleSmRow(rowId,devId,canvasId,tr){
   const row=document.getElementById(rowId);
+  const btn=tr?tr.querySelector('.sm-expand-btn'):null;
   if(!row)return;
   const visible=row.style.display!=='none';
   row.style.display=visible?'none':'table-row';
+  if(btn)btn.textContent=visible?'＋':'−';
   if(!visible&&!row.dataset.loaded){
     row.dataset.loaded='1';
-    // find canvas id from row
-    const canvas=row.querySelector('canvas');
-    if(canvas)loadSmChart(devId,canvas.id,1,row.querySelector('.tb.active'));
+    const canvas=document.getElementById(canvasId);
+    if(canvas){
+      const activeBtn=row.querySelector('.tb.active');
+      loadSmChart(devId,canvasId,1,activeBtn);
+    }
   }
 }
 

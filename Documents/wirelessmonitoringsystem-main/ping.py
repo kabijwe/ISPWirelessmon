@@ -7533,16 +7533,38 @@ def api_snmp_delete_device(device_id):
 @app.route('/api/snmp/devices/<int:device_id>/sm_devices', methods=['GET'])
 @login_required
 def api_snmp_sm_devices(device_id):
-    """Get SM devices under an AP from the main Excel sheet, with live ping status"""
+    """Get SM devices under an AP from the main Excel sheet, with live ping status + SNMP data"""
     try:
         conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT ip FROM snmp_devices WHERE id = ?", (device_id,))
         row = cursor.fetchone()
-        conn.close()
         if not row:
+            conn.close()
             return jsonify({'success': False, 'error': 'Device not found'}), 404
         ap_ip = row[0].strip()
+
+        # Load all SNMP devices keyed by IP for quick lookup
+        cursor.execute('''SELECT d.id, d.ip, d.name, d.model, d.firmware, d.device_type,
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as snmp_status,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT interfaces_json FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as interfaces_json
+                          FROM snmp_devices d''')
+        snmp_by_ip = {}
+        for sd in cursor.fetchall():
+            sd = dict(sd)
+            try:
+                ifaces = json.loads(sd.get('interfaces_json') or '[]')
+                sd['rx_mbps'] = ifaces[0].get('rx_mbps') if ifaces else None
+                sd['tx_mbps'] = ifaces[0].get('tx_mbps') if ifaces else None
+            except Exception:
+                sd['rx_mbps'] = sd['tx_mbps'] = None
+            sd.pop('interfaces_json', None)
+            snmp_by_ip[sd['ip'].strip()] = sd
+        conn.close()
+
         if CACHED_DF is None:
             return jsonify({'success': True, 'sm_devices': []})
         df = CACHED_DF
@@ -7558,6 +7580,7 @@ def api_snmp_sm_devices(device_id):
                         status = res.get('Status', 'Unknown')
                         latency = res.get('Latency')
                         break
+            snmp = snmp_by_ip.get(sm_ip)
             sm_list.append({
                 'sm_ip': sm_ip,
                 'cid': str(r['CID']).strip(),
@@ -7565,6 +7588,15 @@ def api_snmp_sm_devices(device_id):
                 'location': str(r['Location']).strip(),
                 'status': status,
                 'latency': latency,
+                # SNMP enrichment
+                'snmp_id': snmp['id'] if snmp else None,
+                'snmp_status': snmp['snmp_status'] if snmp else None,
+                'model': snmp['model'] if snmp else None,
+                'firmware': snmp['firmware'] if snmp else None,
+                'signal_dbm': snmp['signal_dbm'] if snmp else None,
+                'uptime_seconds': snmp['uptime_seconds'] if snmp else None,
+                'rx_mbps': snmp['rx_mbps'] if snmp else None,
+                'tx_mbps': snmp['tx_mbps'] if snmp else None,
             })
         return jsonify({'success': True, 'ap_ip': ap_ip, 'sm_devices': sm_list})
     except Exception as e:
