@@ -91,30 +91,32 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 
 /* ── AP panel ── */
 .ap-panel{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);overflow:hidden;}
-.ap-panel-hdr{display:flex;align-items:center;gap:12px;padding:13px 18px;background:#e8f0fe;border-bottom:1px solid #d2e3fc;cursor:pointer;user-select:none;}
-.ap-panel-hdr .ap-title{font-size:14px;font-weight:700;color:#1a73e8;flex:1;}
+/* ── AP panel — teal-blue variation ── */
+.ap-panel{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);overflow:hidden;}
+.ap-panel-hdr{display:flex;align-items:center;gap:12px;padding:13px 18px;background:#e1f5fe;border-bottom:1px solid #b3e5fc;cursor:pointer;user-select:none;}
+.ap-panel-hdr .ap-title{font-size:14px;font-weight:700;color:#0277bd;flex:1;}
 .ap-panel-hdr .ap-sub{font-size:12px;color:#555;}
 .ap-panel-body{padding:16px 18px;display:none;}
 .ap-panel-body.open{display:block;}
 .ap-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
-.ap-stat{flex:1;min-width:80px;background:#f8f9ff;border-radius:10px;padding:10px 12px;text-align:center;border:1px solid #e8f0fe;}
-.ap-stat .sv{font-size:18px;font-weight:700;color:#1a73e8;}
+.ap-stat{flex:1;min-width:80px;background:#f0f9ff;border-radius:10px;padding:10px 12px;text-align:center;border:1px solid #b3e5fc;}
+.ap-stat .sv{font-size:18px;font-weight:700;color:#0288d1;}
 .ap-stat .sk{font-size:11px;color:#888;margin-top:3px;}
-.ap-graph-box{background:#f8f9ff;border-radius:10px;padding:12px 14px;border:1px solid #e8f0fe;margin-bottom:14px;}
-.ap-graph-box .g-title{font-size:12px;font-weight:600;color:#555;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.ap-graph-box{background:#f0f9ff;border-radius:10px;padding:12px 14px;border:1px solid #b3e5fc;margin-bottom:14px;}
+.ap-graph-box .g-title{font-size:12px;font-weight:600;color:#0277bd;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
 .ap-graph-box canvas{width:100%!important;height:180px!important;}
 
 /* ── SM table ── */
 .sm-tbl{width:100%;border-collapse:collapse;font-size:13px;}
-.sm-tbl thead th{background:#1a73e8;color:#fff;padding:10px 14px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;}
+.sm-tbl thead th{background:#1565c0;color:#fff;padding:10px 14px;text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;}
 .sm-tbl tbody tr{border-bottom:1px solid #e8eaed;transition:background .12s;}
 .sm-tbl tbody tr:hover{background:#f0f4ff;}
 .sm-tbl tbody td{padding:10px 14px;color:#333;}
-.sm-tbl tbody td code{font-size:12px;background:#e8f0fe;color:#1a73e8;padding:2px 8px;border-radius:4px;font-weight:600;}
+.sm-tbl tbody td code{font-size:12px;background:#e8eaf6;color:#3949ab;padding:2px 8px;border-radius:4px;font-weight:600;}
 .sm-up{color:#34a853;font-weight:700;}.sm-down{color:#ea4335;font-weight:700;}.sm-deg{color:#fbbc04;font-weight:700;}
 .sm-unknown{color:#888;font-weight:600;}
 .sm-main-row:hover{background:#f0f4ff;}
-.sm-expand-btn{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:#e8f0fe;color:#1a73e8;border-radius:5px;font-size:16px;font-weight:700;cursor:pointer;user-select:none;}
+.sm-expand-btn{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:#e8eaf6;color:#3949ab;border-radius:5px;font-size:16px;font-weight:700;cursor:pointer;user-select:none;}
 
 /* ── Badges ── */
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
@@ -214,7 +216,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
       </div>
       <div class="form-group">
         <label>SNMP Community *</label>
-        <input type="text" id="fCommunity" value="public">
+        <input type="text" id="fCommunity" value="wlinkregion7">
       </div>
       <div class="form-group">
         <label>SNMP Port</label>
@@ -691,21 +693,19 @@ async function buildApPanel(panel,swId,portIdx,apIp){
 
       // Expandable SNMP detail card (only for SNMP-enabled SMs)
       const expandRow=hasSnmp?`
-      <tr id="smexp-${swId}-${portIdx}-${i}" style="display:none;background:#f0f6ff;">
+      <tr id="smexp-${swId}-${portIdx}-${i}" style="display:none;">
         <td colspan="8" style="padding:0;">
-          <div style="padding:14px 20px;display:flex;flex-direction:column;gap:12px;">
-            <!-- SM stat tiles -->
-            <div style="display:flex;gap:10px;flex-wrap:wrap;">
-              <div class="ap-stat"><div class="sv" style="font-size:15px;">${sBadge(snmpStatus)}</div><div class="sk">SNMP Status</div></div>
-              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#7b1fa2;">${signal}</div><div class="sk">Signal</div></div>
-              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#34a853;">${smRx}</div><div class="sk">RX Mbps</div></div>
-              <div class="ap-stat"><div class="sv" style="font-size:15px;color:#1a73e8;">${smTx}</div><div class="sk">TX Mbps</div></div>
-              <div class="ap-stat"><div class="sv" style="font-size:15px;">${smUp}</div><div class="sk">Uptime</div></div>
-              ${s.model?`<div class="ap-stat"><div class="sv" style="font-size:13px;">${s.model}</div><div class="sk">Model</div></div>`:''}
-              ${s.firmware?`<div class="ap-stat"><div class="sv" style="font-size:13px;">${s.firmware}</div><div class="sk">Firmware</div></div>`:''}
+          <div class="sm-exp-inner">
+            <div class="sm-stat-tiles">
+              <div class="sm-stat"><div class="sv">${sBadge(snmpStatus)}</div><div class="sk">SNMP Status</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#7b1fa2;">${signal}</div><div class="sk">Signal</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#34a853;">${smRx}</div><div class="sk">RX Mbps</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#1565c0;">${smTx}</div><div class="sk">TX Mbps</div></div>
+              <div class="sm-stat"><div class="sv">${smUp}</div><div class="sk">Uptime</div></div>
+              ${s.model?`<div class="sm-stat"><div class="sv" style="font-size:13px;">${s.model}</div><div class="sk">Model</div></div>`:''}
+              ${s.firmware?`<div class="sm-stat"><div class="sv" style="font-size:13px;">${s.firmware}</div><div class="sk">Firmware</div></div>`:''}
             </div>
-            <!-- SM traffic graph -->
-            <div class="ap-graph-box" style="margin:0;">
+            <div class="sm-graph-box">
               <div class="g-title">
                 <span>📈 SM Traffic — ${s.device_name||s.sm_ip}</span>
                 <div class="time-btns">
@@ -720,7 +720,7 @@ async function buildApPanel(panel,swId,portIdx,apIp){
         </td>
       </tr>`:'';
 
-      return`<tr class="sm-main-row" style="cursor:${hasSnmp?'pointer':'default'};" onclick="${hasSnmp?`toggleSmRow('smexp-${swId}-${portIdx}-${i}',${s.snmp_id},'smcvs-${swId}-${portIdx}-${i}',this)`:''}">
+      return`<tr class="sm-main-row" style="cursor:${hasSnmp?'pointer':'default'};" ${hasSnmp?`data-smrow="smexp-${swId}-${portIdx}-${i}" data-devid="${s.snmp_id}" data-canvas="smcvs-${swId}-${portIdx}-${i}"`:''}>
         <td style="color:#888;font-weight:600;width:32px;">${i+1}</td>
         <td><code>${s.sm_ip}</code>${snmpBadge}</td>
         <td style="color:#555;">${s.cid||'—'}</td>
@@ -775,6 +775,8 @@ async function buildApPanel(panel,swId,portIdx,apIp){
       </div>
     </div>`;
     if(apDev)loadApChart(apDev.id,graphId,1,panel.querySelector('.tb.active'));
+    // Attach SM row click handlers after DOM is set
+    attachSmTableClicks(panel);
   }catch(e){panel.innerHTML=`<div style="color:#ea4335;font-size:13px;padding:8px;">${e.message}</div>`;}
 }
 
@@ -786,21 +788,33 @@ function toggleApBody(id,toggleId){
   if(btn)btn.textContent=open?'−':'＋';
 }
 
-function toggleSmRow(rowId,devId,canvasId,tr){
+function toggleSmRow(rowId,devId,canvasId,toggleBtnId){
   const row=document.getElementById(rowId);
-  const btn=tr?tr.querySelector('.sm-expand-btn'):null;
+  const btn=document.getElementById(toggleBtnId);
   if(!row)return;
   const visible=row.style.display!=='none';
   row.style.display=visible?'none':'table-row';
   if(btn)btn.textContent=visible?'＋':'−';
   if(!visible&&!row.dataset.loaded){
     row.dataset.loaded='1';
-    const canvas=document.getElementById(canvasId);
-    if(canvas){
-      const activeBtn=row.querySelector('.tb.active');
-      loadSmChart(devId,canvasId,1,activeBtn);
-    }
+    const activeBtn=row.querySelector('.tb.active');
+    loadSmChart(devId,canvasId,1,activeBtn);
   }
+}
+
+// SM table click delegation — attached after table is rendered
+function attachSmTableClicks(container){
+  container.querySelectorAll('tr.sm-main-row[data-smrow]').forEach((tr,i)=>{
+    tr.addEventListener('click',()=>{
+      const rowId=tr.dataset.smrow;
+      const devId=parseInt(tr.dataset.devid);
+      const canvasId=tr.dataset.canvas;
+      // find toggle btn id from expand btn inside this tr
+      const btn=tr.querySelector('.sm-expand-btn');
+      const toggleBtnId=btn?btn.id:'';
+      toggleSmRow(rowId,devId,canvasId,toggleBtnId);
+    });
+  });
 }
 
 async function loadSmChart(devId,canvasId,hours,btn){
@@ -874,7 +888,7 @@ function unlockApIp(swId,portIdx,cur){
 function openAddModal(){
   document.getElementById('modalTitle').textContent='Add SNMP Device';
   ['editDeviceId','fName','fIp','fLocation','fModel','fMac','fFirmware','fDesc'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('fCommunity').value='public';
+  document.getElementById('fCommunity').value='wlinkregion7';
   document.getElementById('fType').value='generic';
   document.getElementById('fVersion').value='2c';
   document.getElementById('fActive').value='1';
