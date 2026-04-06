@@ -355,11 +355,10 @@
             
             <div class="main-menu-bar">
                 <a href="{{ url_for('dashboard') }}" class="menu-btn">🏠 Dashboard</a>
-                <a href="/my_tasks" class="menu-btn">📋 My Tasks</a>
-                {% if user.role == 'admin' %}
+                <a href="/my_tasks" class="menu-btn">📋 Tasks</a>
+                {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                 <a href="{{ url_for('admin_dashboard') }}" class="menu-btn">🔒 Admin Panel</a>
                 {% endif %}
-                <a href="/mobile" class="menu-btn">📱 Mobile View</a>
                 <a href="/sla" class="menu-btn">📊 SLA Monitor</a>
                 <div class="notification-bell" onclick="window.location.href='/my_tasks'" title="My Assigned Tasks">
                     🔔
@@ -410,6 +409,11 @@
                 <div class="info-item">
                     <div class="info-label">Role</div>
                     <div class="info-value">{{ user.role.title() }}</div>
+                </div>
+                
+                <div class="info-item">
+                    <div class="info-label">Region</div>
+                    <div class="info-value">{{ user.region_name or 'Not Assigned' }}</div>
                 </div>
                 
                 <div class="info-item">

@@ -71,60 +71,130 @@
             margin-bottom: 10px;
         }
         .logout-btn {
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            padding: 5px 10px;
+            padding: 8px 16px;
             background-color: #dc3545;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
         }
         .logout-btn:hover {
             background-color: #c82333;
         }
         .dashboard-btn {
-            position: fixed;
-            top: 10px;
-            right: 120px;
-            padding: 5px 10px;
+            padding: 8px 16px;
             background-color: #007bff;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
         }
         .dashboard-btn:hover {
             background-color: #0056b3;
         }
+        .mytasks-btn {
+            padding: 8px 16px;
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+        }
+        .mytasks-btn:hover {
+            background-color: #138496;
+        }
+        .sla-btn {
+            padding: 8px 16px;
+            background-color: #6f42c1;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+        }
+        .sla-btn:hover {
+            background-color: #5a32a3;
+        }
         .profile-btn {
-            position: fixed;
-            top: 10px;
-            right: 230px;
-            padding: 5px 10px;
+            padding: 8px 16px;
             background-color: #28a745;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
         }
         .profile-btn:hover {
             background-color: #218838;
         }
+        
+        /* Navigation Header */
+        .nav-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: -20px -20px 20px -20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .nav-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .nav-title {
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            margin: 0;
+        }
+        
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
         .user-info {
-            position: fixed;
-            top: 50px;
-            right: 10px;
-            background: white;
-            padding: 8px 12px;
-            border-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            font-size: 12px;
-            color: #666;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 15px;
+            border-radius: 20px;
+            color: white;
+            font-size: 13px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .user-info strong {
+            font-weight: 600;
         }
         .search-bar {
             margin-bottom: 15px;
@@ -245,22 +315,278 @@
             padding: 2px 4px;
             border-radius: 2px;
         }
+
+        /* Custom Modal Styles */
+        .custom-modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.2s;
+        }
+
+        .custom-modal-content {
+            background-color: #fff;
+            margin: 10% auto;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            animation: slideDown 0.3s;
+        }
+
+        .custom-modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .custom-modal-icon {
+            font-size: 24px;
+        }
+
+        .custom-modal-title {
+            margin: 0;
+            font-size: 20px;
+            color: #333;
+        }
+
+        .custom-modal-body {
+            padding: 20px;
+        }
+
+        .custom-modal-body p {
+            margin: 0 0 15px 0;
+            color: #555;
+            line-height: 1.5;
+        }
+
+        .custom-modal-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .custom-modal-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .custom-modal-footer {
+            padding: 15px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .custom-modal-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .custom-modal-btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .custom-modal-btn-primary:hover {
+            background-color: #0056b3;
+        }
+
+        .custom-modal-btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .custom-modal-btn-secondary:hover {
+            background-color: #545b62;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
     </style>
 </head>
 <body>
-    <a href="{{ url_for('profile') }}" class="profile-btn">Profile</a>
-    <a href="{{ url_for('dashboard') }}" class="dashboard-btn">Dashboard</a>
-    <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
-    <div class="user-info">
-        Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
+    <!-- Custom Modal Dialogs -->
+    <div id="customAlertModal" class="custom-modal">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header">
+                <span class="custom-modal-icon">ℹ️</span>
+                <h3 class="custom-modal-title">Alert</h3>
+            </div>
+            <div class="custom-modal-body">
+                <p id="customAlertMessage"></p>
+            </div>
+            <div class="custom-modal-footer">
+                <button class="custom-modal-btn custom-modal-btn-primary" onclick="closeCustomAlert()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="customConfirmModal" class="custom-modal">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header">
+                <span class="custom-modal-icon">❓</span>
+                <h3 class="custom-modal-title">Confirm</h3>
+            </div>
+            <div class="custom-modal-body">
+                <p id="customConfirmMessage"></p>
+            </div>
+            <div class="custom-modal-footer">
+                <button class="custom-modal-btn custom-modal-btn-secondary" onclick="closeCustomConfirm(false)">Cancel</button>
+                <button class="custom-modal-btn custom-modal-btn-primary" onclick="closeCustomConfirm(true)">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="customPromptModal" class="custom-modal">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header">
+                <span class="custom-modal-icon">✏️</span>
+                <h3 class="custom-modal-title">Input Required</h3>
+            </div>
+            <div class="custom-modal-body">
+                <p id="customPromptMessage"></p>
+                <input type="text" id="customPromptInput" class="custom-modal-input">
+            </div>
+            <div class="custom-modal-footer">
+                <button class="custom-modal-btn custom-modal-btn-secondary" onclick="closeCustomPrompt(null)">Cancel</button>
+                <button class="custom-modal-btn custom-modal-btn-primary" onclick="closeCustomPrompt(document.getElementById('customPromptInput').value)">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation Header -->
+    <div class="nav-header">
+        <div class="nav-left">
+            <h1 class="nav-title">🔒 Admin Dashboard</h1>
+        </div>
+        <div class="nav-right">
+            <div class="user-info">
+                Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
+            </div>
+            <a href="{{ url_for('dashboard') }}" class="dashboard-btn">🏠 Dashboard</a>
+            <a href="/my_tasks" class="mytasks-btn">📋 Tasks</a>
+            <a href="/sla" class="sla-btn">📊 SLA Monitor</a>
+            <a href="{{ url_for('profile') }}" class="profile-btn">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: white; color: #28a745; font-weight: bold; font-size: 12px;">{{ user.username[0]|upper }}</span>
+                {{ user.username }}
+            </a>
+            <a href="{{ url_for('logout') }}" class="logout-btn">🚪 Logout</a>
+        </div>
     </div>
     
     <div class="container">
         <div class="section">
-            <h2>Admin Dashboard</h2>
             <button class="toggle-button" id="toggleEntryManagement">Show Entry Management</button>
             
             <div class="hidden" id="entryManagementSection">
+                <!-- Bulk Import Section -->
+                <div class="section" style="background: #f8f9fa; border-left: 4px solid #007bff;">
+                    <h2>📥 Bulk Import Entries</h2>
+                    <p style="color: #666; margin-bottom: 15px;">Import multiple devices at once using an Excel file. Download the template, fill in your data, and upload.</p>
+                    
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <button onclick="downloadTemplate()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            📄 Download Template
+                        </button>
+                        
+                        <div style="flex: 1; min-width: 250px;">
+                            <input type="file" id="bulkUploadFile" accept=".xlsx,.xls" style="display: none;" onchange="handleBulkUpload()">
+                            <button onclick="document.getElementById('bulkUploadFile').click()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                📤 Upload Filled Template
+                            </button>
+                            <span id="uploadFileName" style="margin-left: 10px; color: #666;"></span>
+                        </div>
+                    </div>
+                    
+                    <div id="uploadProgress" style="display: none; margin-top: 15px; padding: 10px; background: white; border-radius: 5px;">
+                        <div style="margin-bottom: 5px; font-weight: bold;">Processing...</div>
+                        <div style="background: #e9ecef; height: 20px; border-radius: 10px; overflow: hidden;">
+                            <div id="progressBar" style="background: #007bff; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <div id="progressText" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
+                    </div>
+                    
+                    <div id="uploadResults" style="display: none; margin-top: 15px; padding: 15px; background: white; border-radius: 5px; border: 1px solid #ddd;">
+                        <h3 style="margin-top: 0;">Import Results</h3>
+                        <div id="resultsContent"></div>
+                    </div>
+                    
+                    <details style="margin-top: 15px;">
+                        <summary style="cursor: pointer; color: #007bff; font-weight: bold;">ℹ️ Instructions & Requirements</summary>
+                        <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 5px;">
+                            <h4>Required Columns:</h4>
+                            <ul>
+                                <li><strong>SM IP</strong> - Required, must be unique, must be valid IP address</li>
+                                <li><strong>Location</strong> - Required, will be created if doesn't exist</li>
+                            </ul>
+                            
+                            <h4>Optional Columns:</h4>
+                            <ul>
+                                <li><strong>AP Name</strong> - Access Point name</li>
+                                <li><strong>AP IP</strong> - Access Point IP address</li>
+                                <li><strong>CID</strong> - Customer/Circuit ID</li>
+                                <li><strong>Device Name</strong> - Name of the device/organization</li>
+                            </ul>
+                            
+                            <h4>Import Process:</h4>
+                            <ol>
+                                <li>Download the template Excel file</li>
+                                <li>Fill in your device data (one device per row)</li>
+                                <li>Ensure SM IP and Location are filled for each row</li>
+                                <li>Upload the completed file</li>
+                                <li>System will:
+                                    <ul>
+                                        <li>Check for duplicate SM IPs (skip duplicates)</li>
+                                        <li>Validate IP addresses</li>
+                                        <li>Create new locations automatically if they don't exist</li>
+                                        <li>Import all valid entries</li>
+                                        <li>Show detailed results</li>
+                                    </ul>
+                                </li>
+                            </ol>
+                            
+                            <h4>Tips:</h4>
+                            <ul>
+                                <li>Keep the column headers exactly as in the template</li>
+                                <li>Don't leave SM IP or Location empty</li>
+                                <li>New locations will be created without a region (assign region later)</li>
+                                <li>Duplicate SM IPs will be skipped automatically</li>
+                                <li>Invalid IP addresses will be rejected</li>
+                            </ul>
+                        </div>
+                    </details>
+                </div>
+                
                 <div class="section">
                     <h2>Add New Entry</h2>
                     {% if error %}
@@ -291,10 +617,8 @@
                             <label for="location">Location</label>
                             <select id="location" name="location" required>
                                 <option value="">Select Location</option>
-                                {% for loc in locations %}
-                                    <option value="{{ loc }}">{{ loc }}</option>
-                                {% endfor %}
                             </select>
+                            <button type="button" onclick="refreshLocationDropdown()" style="margin-top: 5px; padding: 5px 10px; font-size: 12px;">🔄 Refresh Locations</button>
                         </div>
                         <button type="submit">Add Entry</button>
                     </form>
@@ -302,12 +626,46 @@
                 
                 <div class="section">
                     <h2>Manage Entries</h2>
-                    <div class="search-bar">
-                        <input type="text" id="search-input" placeholder="Search by SM IP, Device Name, or Location">
+                    
+                    <!-- Filter and Bulk Actions Bar -->
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <input type="text" id="search-input" placeholder="Search by SM IP, Device Name, or Location" style="width: 100%;">
+                        </div>
+                        <div style="min-width: 150px;">
+                            <select id="filterEntryRegion" onchange="onRegionFilterChange()" style="width: 100%; padding: 8px;">
+                                <option value="">All Regions</option>
+                            </select>
+                        </div>
+                        <div style="min-width: 150px;">
+                            <select id="filterEntryLocation" onchange="filterEntriesByLocation()" style="width: 100%; padding: 8px;">
+                                <option value="">All Locations</option>
+                            </select>
+                        </div>
+                        <button onclick="toggleBulkSelect()" style="padding: 8px 15px; white-space: nowrap;">
+                            <span id="bulkSelectText">Enable Bulk Select</span>
+                        </button>
                     </div>
+                    
+                    <!-- Bulk Actions Bar (hidden by default) -->
+                    <div id="bulkActionsBar" style="display: none; background: #f0f0f0; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+                        <span id="selectedCount" style="margin-right: 15px; font-weight: bold;">0 selected</span>
+                        <button onclick="bulkChangeLocation()" style="padding: 5px 10px; margin-right: 5px;">Change Location</button>
+                        <button onclick="bulkDeleteEntries()" style="padding: 5px 10px; background: #dc3545; color: white;">Delete Selected</button>
+                        <button onclick="selectAllVisible()" style="padding: 5px 10px; margin-left: 10px;">Select All Visible</button>
+                        <button onclick="deselectAll()" style="padding: 5px 10px;">Deselect All</button>
+                    </div>
+                    
+                    <div style="margin-bottom: 10px; color: #666;">
+                        <span id="entryCount">Showing {{ records|length }} entries</span>
+                    </div>
+                    
                     <table>
                         <thead>
                             <tr>
+                                <th id="selectAllHeader" style="display: none; width: 40px;">
+                                    <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+                                </th>
                                 <th>AP Name</th>
                                 <th>AP IP</th>
                                 <th>CID</th>
@@ -319,7 +677,10 @@
                         </thead>
                         <tbody id="entries-table">
                             {% for record in records %}
-                                <tr class="entry-row">
+                                <tr class="entry-row" data-location="{{ record.get('Location', 'N/A') }}" data-sm-ip="{{ record.get('SM IP', '') }}">
+                                    <td class="select-cell" style="display: none;">
+                                        <input type="checkbox" class="entry-checkbox" value="{{ record.get('SM IP', '') }}">
+                                    </td>
                                     <td>{{ record.get('AP Name', 'N/A') }}</td>
                                     <td>{{ record.get('AP IP', 'N/A') }}</td>
                                     <td>{{ record.get('CID', 'N/A') }}</td>
@@ -338,62 +699,101 @@
             </div>
         </div>
         
-        <!-- Maintenance Mode Section -->
+        
+        <!-- Region Management Section -->
         <div class="section">
-            <h2>Maintenance Mode</h2>
-            <p>Schedule maintenance windows to suppress alerts during planned downtime.</p>
+            <h2>🗺️ Region Management</h2>
+            <button class="toggle-button" id="toggleRegionManagement">Show Region Management</button>
             
-            <div class="maintenance-controls">
-                <h3>Schedule Maintenance Window</h3>
-                <p>Select a device from the dropdown or enter an IP address manually. You can search by IP, device name, or location when entering manually.</p>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="maintenanceIp">Device IP:</label>
-                        <select id="maintenanceIp">
-                            <option value="">Select Device...</option>
-                            <option value="manual">Enter IP Manually...</option>
+            <div class="hidden" id="regionManagementSection">
+                <p>Manage geographical regions for organizing locations.</p>
+                
+                <div class="maintenance-controls">
+                <button type="button" onclick="showAddRegionModal()" style="margin-bottom: 15px;">➕ Add New Region</button>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Region Name</th>
+                            <th>Description</th>
+                            <th>Locations</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="regionsTableBody">
+                        <tr><td colspan="5" style="text-align: center;">Loading regions...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            </div>
+        </div>
+        
+        <!-- Location Management Section -->
+        <div class="section">
+            <h2>📍 Location Management</h2>
+            <button class="toggle-button" id="toggleLocationManagement">Show Location Management</button>
+            
+            <div class="hidden" id="locationManagementSection">
+                <p>Manage locations and assign them to regions.</p>
+                
+                <div class="maintenance-controls">
+                <button type="button" onclick="showAddLocationModal()" style="margin-bottom: 15px;">➕ Add New Location</button>
+                <button type="button" onclick="showBulkReassignModal()" style="margin-bottom: 15px; margin-left: 10px; background-color: #17a2b8;">🔄 Bulk Reassign Locations</button>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap;">
+                    <div class="form-group" style="max-width: 300px; margin-bottom: 0;">
+                        <label for="filterRegion">Filter by Region:</label>
+                        <select id="filterRegion" onchange="loadLocations()">
+                            <option value="">All Regions</option>
+                            <option value="unassigned">⚠️ Unassigned Locations</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label for="maintenanceStart">Start Time:</label>
-                        <input type="datetime-local" id="maintenanceStart" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="maintenanceEnd">End Time:</label>
-                        <input type="datetime-local" id="maintenanceEnd" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="maintenanceReason">Reason:</label>
-                        <input type="text" id="maintenanceReason" placeholder="Scheduled maintenance" maxlength="100">
-                    </div>
-                    <div class="form-group">
-                        <button type="button" onclick="addMaintenanceWindow()">Schedule Maintenance</button>
+                    <div class="form-group" style="max-width: 300px; margin-bottom: 0;">
+                        <label for="searchLocations">Search Locations:</label>
+                        <input type="text" id="searchLocations" placeholder="Search by location name..." onkeyup="filterLocationsTable()">
                     </div>
                 </div>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Location Name</th>
+                            <th>Region</th>
+                            <th>Description</th>
+                            <th>Devices</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="locationsTableBody">
+                        <tr><td colspan="6" style="text-align: center;">Loading locations...</td></tr>
+                    </tbody>
+                </table>
             </div>
-            
-            <div class="maintenance-list">
-                <h3>Active Maintenance Windows</h3>
-                <div id="maintenanceContainer">
-                    <p>Loading maintenance windows...</p>
-                </div>
             </div>
         </div>
         
         <!-- User Management Section -->
         <div class="section">
             <h2>User Management</h2>
-            <p>Manage system users and assign devices to technicians.</p>
+            <button class="toggle-button" id="toggleUserManagement">Show User Management</button>
             
-            <div class="maintenance-controls">
+            <div class="hidden" id="userManagementSection">
+                <p>Manage system users and assign devices to technicians.</p>
+                
+                <div class="maintenance-controls">
                 <h3>Users</h3>
-                <button type="button" onclick="showAddUserModal()" style="margin-bottom: 15px;">➕ Add New User</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                    <button type="button" onclick="showAddUserModal()">➕ Add New User</button>
+                    <button type="button" onclick="showLocationMigrationModal()" style="background-color: #17a2b8;">🔄 Migrate Users to Location</button>
+                </div>
                 <table>
                     <thead>
                         <tr>
                             <th>Username</th>
                             <th>Email</th>
                             <th>Role</th>
+                            <th>Region</th>
                             <th>Status</th>
                             <th>Created</th>
                             <th>Last Login</th>
@@ -408,8 +808,26 @@
                             <td>
                                 <select class="user-role-select" data-user-id="{{ user_item.id }}" onchange="updateUserRole({{ user_item.id }}, this.value)">
                                     <option value="user" {% if user_item.role == 'user' %}selected{% endif %}>User</option>
-                                    <option value="admin" {% if user_item.role == 'admin' %}selected{% endif %}>Admin</option>
+                                    <option value="superadmin" {% if user_item.role == 'superadmin' %}selected{% endif %}>Superadmin</option>
+                                    <option value="regional_admin" {% if user_item.role == 'regional_admin' %}selected{% endif %}>Regional Admin</option>
                                 </select>
+                            </td>
+                            <td>
+                                <span class="region-badge" data-user-id="{{ user_item.id }}" data-region-id="{{ user_item.region_id or '' }}">
+                                    {% if user_item.role == 'superadmin' %}
+                                        All Regions
+                                    {% elif user_item.role == 'regional_admin' and user_item.region_name %}
+                                        {{ user_item.region_name }}
+                                    {% elif user_item.role == 'user' and user_item.region_name %}
+                                        {{ user_item.region_name }}
+                                    {% else %}
+                                        Not Assigned
+                                    {% endif %}
+                                </span>
+                                {% if user_item.role in ['user', 'regional_admin'] %}
+                                <button onclick="showEditRegionModal({{ user_item.id }}, '{{ user_item.username }}', {{ user_item.region_id or 'null' }})" 
+                                        class="btn-small" style="margin-left: 5px; font-size: 11px;">Edit</button>
+                                {% endif %}
                             </td>
                             <td>
                                 <span class="status-badge {% if user_item.is_active %}status-active{% else %}status-inactive{% endif %}">
@@ -433,40 +851,166 @@
                     </tbody>
                 </table>
             </div>
-            
-            <div class="maintenance-controls">
-                <h3>Device Assignment</h3>
-                <p>Assign devices to users for monitoring and maintenance. Users will receive email notifications.</p>
+            </div>
+        </div>
+        
+        <!-- Activity Logs Section (Superadmin only) -->
+        {% if user.role == 'superadmin' %}
+        <div class="section" id="activityLogsSection">
+            <h2>👁️ User Activity Monitor</h2>
+            <button class="toggle-button" id="toggleActivityLogs">Show Activity Monitor</button>
+
+            <div class="hidden" id="activityLogsContent">
+
+                <!-- Who's Online -->
+                <div style="background:#f0f8ff;border:1px solid #b3d9ff;border-radius:8px;padding:15px;margin-bottom:20px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                        <h3 style="margin:0;color:#1a73e8;">🟢 Who's Online Now</h3>
+                        <button onclick="loadOnlineUsers()" style="padding:6px 14px;background:#1a73e8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🔄 Refresh</button>
+                    </div>
+                    <div id="onlineUsersContainer">
+                        <p style="color:#999;text-align:center;">Loading...</p>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:15px;align-items:flex-end;">
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Select User</label>
+                        <select id="logFilterUser" onchange="loadActivityLogs()" style="padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:180px;">
+                            <option value="">-- All Users --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">Action Type</label>
+                        <select id="logFilterAction" style="padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                            <option value="">All Actions</option>
+                            <option value="login">Login</option>
+                            <option value="logout">Logout</option>
+                            <option value="task_create">Task Created</option>
+                            <option value="task_assign">Task Assigned</option>
+                            <option value="task_closed">Task Closed</option>
+                            <option value="entry_add">Entry Added</option>
+                            <option value="entry_update">Entry Updated</option>
+                            <option value="entry_delete">Entry Deleted</option>
+                            <option value="user_update">User Updated</option>
+                            <option value="user_delete">User Deleted</option>
+                            <option value="profile_update">Profile Updated</option>
+                            <option value="password_change">Password Changed</option>
+                            <option value="location_migration">Location Migration</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">From Date</label>
+                        <input type="date" id="logFilterFrom" style="padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;">To Date</label>
+                        <input type="date" id="logFilterTo" style="padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                    </div>
+                    <button onclick="loadActivityLogs()" style="padding:8px 18px;background:#1a73e8;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🔍 Search</button>
+                    <button onclick="clearLogFilters()" style="padding:8px 14px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">✖ Clear</button>
+                </div>
+
+                <!-- Logs Table -->
+                <div style="overflow-x:auto;">
+                    <table id="activityLogsTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Timestamp</th>
+                                <th>Username</th>
+                                <th>Action</th>
+                                <th>Description</th>
+                                <th>IP Address</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activityLogsBody">
+                            <tr><td colspan="6" style="text-align:center;color:#999;">Click "Search" or open this section to load logs</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="activityLogsMeta" style="font-size:12px;color:#666;margin-top:8px;text-align:right;"></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Add Region Modal -->
+        <div id="addRegionModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeRegionModal()">&times;</span>
+                <h2 id="regionModalTitle">Add New Region</h2>
+                <form id="regionForm" onsubmit="saveRegion(event)">
+                    <input type="hidden" id="regionId">
+                    <div class="form-group">
+                        <label for="regionName">Region Name:</label>
+                        <input type="text" id="regionName" required placeholder="e.g., Region 1">
+                    </div>
+                    <div class="form-group">
+                        <label for="regionDescription">Description:</label>
+                        <textarea id="regionDescription" rows="3" placeholder="Optional description"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Save Region</button>
+                        <button type="button" onclick="closeRegionModal()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Add Location Modal -->
+        <div id="addLocationModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeLocationModal()">&times;</span>
+                <h2 id="locationModalTitle">Add New Location</h2>
+                <form id="locationForm" onsubmit="saveLocation(event)">
+                    <input type="hidden" id="locationId">
+                    <div class="form-group">
+                        <label for="locationName">Location Name:</label>
+                        <input type="text" id="locationName" required placeholder="e.g., Kathmandu">
+                    </div>
+                    <div class="form-group">
+                        <label for="locationRegion">Region:</label>
+                        <select id="locationRegion" required>
+                            <option value="">Select Region...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="locationDescription">Description:</label>
+                        <textarea id="locationDescription" rows="3" placeholder="Optional description"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Save Location</button>
+                        <button type="button" onclick="closeLocationModal()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Bulk Reassign Locations Modal -->
+        <div id="bulkReassignModal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 600px;">
+                <span class="close" onclick="closeBulkReassignModal()">&times;</span>
+                <h2>🔄 Bulk Reassign Locations to Region</h2>
+                <p>Select multiple locations and assign them to a region.</p>
                 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="assignDeviceIp">Device IP:</label>
-                        <select id="assignDeviceIp" required>
-                            <option value="">Select Device...</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="assignUserId">Assign to User:</label>
-                        <select id="assignUserId" required>
-                            <option value="">Select User...</option>
-                            {% for user_item in users %}
-                                {% if user_item.is_active and user_item.role == 'user' %}
-                                <option value="{{ user_item.id }}">{{ user_item.username }} ({{ user_item.email }})</option>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
+                <div class="form-group">
+                    <label for="bulkTargetRegion">Target Region:</label>
+                    <select id="bulkTargetRegion" required style="padding: 8px; font-size: 14px;">
+                        <option value="">Select Region...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Select Locations to Reassign:</label>
+                    <div id="bulkLocationsList" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background: #f9f9f9;">
+                        <p style="text-align: center; color: #666;">Loading locations...</p>
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="assignComment">Assignment Comment:</label>
-                        <textarea id="assignComment" placeholder="Optional comment about the assignment..." rows="3"></textarea>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <button type="button" onclick="assignDevice()">Assign Device</button>
-                    </div>
+                
+                <div class="form-group">
+                    <button type="button" onclick="executeBulkReassign()" style="background-color: #17a2b8;">Reassign Selected Locations</button>
+                    <button type="button" onclick="closeBulkReassignModal()">Cancel</button>
                 </div>
             </div>
         </div>
@@ -491,10 +1035,18 @@
                     </div>
                     <div class="form-group">
                         <label for="newRole">Role:</label>
-                        <select id="newRole" required>
+                        <select id="newRole" required onchange="toggleRegionField()">
                             <option value="user">User</option>
-                            <option value="admin">Admin</option>
+                            <option value="superadmin">Superadmin</option>
+                            <option value="regional_admin">Regional Admin</option>
                         </select>
+                    </div>
+                    <div class="form-group" id="regionFieldGroup">
+                        <label for="newUserRegion">Assigned Region: <span style="color: red;">*</span></label>
+                        <select id="newUserRegion">
+                            <option value="">Select Region...</option>
+                        </select>
+                        <small style="color: #666;">Regular users and regional admins must be assigned to a region</small>
                     </div>
                     <div class="form-group">
                         <button type="submit">Create User</button>
@@ -502,6 +1054,72 @@
                     </div>
                 </form>
             </div>
+        </div>
+        
+        <!-- Edit User Region Modal -->
+        <div id="editRegionModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" onclick="closeEditRegionModal()">&times;</span>
+                <h2>Edit User Region</h2>
+                <form id="editRegionForm" onsubmit="updateUserRegion(event)">
+                    <input type="hidden" id="editUserId">
+                    <div class="form-group">
+                        <label>Username:</label>
+                        <input type="text" id="editUsername" readonly style="background: #f0f0f0;">
+                    </div>
+                    <div class="form-group">
+                        <label for="editUserRegion">Assigned Region: <span style="color: red;">*</span></label>
+                        <select id="editUserRegion" required>
+                            <option value="">Select Region...</option>
+                        </select>
+                        <small style="color: #666;">Select the region this user should manage</small>
+                    </div>
+                    <div class="form-group">
+                        <button type="submit">Update Region</button>
+                        <button type="button" onclick="closeEditRegionModal()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Location Migration Modal -->
+    <div id="locationMigrationModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <span class="close" onclick="closeLocationMigrationModal()">&times;</span>
+            <h2>🔄 Migrate Users to Location</h2>
+            <p>Move users from one location to another. This will update their region assignment and all related data.</p>
+            
+            <form onsubmit="performLocationMigration(event)">
+                <div class="form-group">
+                    <label for="sourceLocation">From Location:</label>
+                    <select id="sourceLocation" required onchange="loadUsersInLocation()">
+                        <option value="">Select source location...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="targetLocation">To Location:</label>
+                    <select id="targetLocation" required>
+                        <option value="">Select target location...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="usersInLocationGroup" style="display: none;">
+                    <label>Users in Source Location:</label>
+                    <div id="usersInLocationList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                        <!-- Users will be loaded here -->
+                    </div>
+                    <small style="color: #666;">Select users to migrate (or leave all selected to migrate everyone)</small>
+                </div>
+                
+                <div class="form-group">
+                    <div style="display: flex; gap: 10px;">
+                        <button type="submit" style="background-color: #17a2b8;">Migrate Selected Users</button>
+                        <button type="button" onclick="closeLocationMigrationModal()">Cancel</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
     
@@ -576,9 +1194,98 @@
     </style>
     
     <script>
+        // Custom Modal Dialog Functions
+        let customAlertCallback = null;
+        let customConfirmCallback = null;
+        let customPromptCallback = null;
+
+        function showAlert(message, callback) {
+            document.getElementById('customAlertMessage').textContent = message;
+            document.getElementById('customAlertModal').style.display = 'block';
+            customAlertCallback = callback || null;
+        }
+
+        function closeCustomAlert() {
+            document.getElementById('customAlertModal').style.display = 'none';
+            if (customAlertCallback) {
+                customAlertCallback();
+                customAlertCallback = null;
+            }
+        }
+
+        function showConfirm(message, onConfirm, onCancel) {
+            document.getElementById('customConfirmMessage').textContent = message;
+            document.getElementById('customConfirmModal').style.display = 'block';
+            customConfirmCallback = { confirm: onConfirm || null, cancel: onCancel || null };
+        }
+
+        function closeCustomConfirm(confirmed) {
+            document.getElementById('customConfirmModal').style.display = 'none';
+            if (customConfirmCallback) {
+                if (confirmed && customConfirmCallback.confirm) {
+                    customConfirmCallback.confirm();
+                } else if (!confirmed && customConfirmCallback.cancel) {
+                    customConfirmCallback.cancel();
+                }
+                customConfirmCallback = null;
+            }
+        }
+
+        function showPrompt(message, defaultValue, onConfirm, onCancel) {
+            document.getElementById('customPromptMessage').textContent = message;
+            document.getElementById('customPromptInput').value = defaultValue || '';
+            document.getElementById('customPromptModal').style.display = 'block';
+            customPromptCallback = { confirm: onConfirm || null, cancel: onCancel || null };
+            // Focus input
+            setTimeout(() => document.getElementById('customPromptInput').focus(), 100);
+        }
+
+        function closeCustomPrompt(value) {
+            document.getElementById('customPromptModal').style.display = 'none';
+            if (customPromptCallback) {
+                if (value !== null && customPromptCallback.confirm) {
+                    customPromptCallback.confirm(value);
+                } else if (value === null && customPromptCallback.cancel) {
+                    customPromptCallback.cancel();
+                }
+                customPromptCallback = null;
+            }
+        }
+
+        // Close modals on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (document.getElementById('customAlertModal').style.display === 'block') {
+                    closeCustomAlert();
+                }
+                if (document.getElementById('customConfirmModal').style.display === 'block') {
+                    closeCustomConfirm(false);
+                }
+                if (document.getElementById('customPromptModal').style.display === 'block') {
+                    closeCustomPrompt(null);
+                }
+            }
+        });
+
+        // Close modals on Enter key for prompt (add after DOM loads)
+        document.addEventListener('DOMContentLoaded', function() {
+            const promptInput = document.getElementById('customPromptInput');
+            if (promptInput) {
+                promptInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        closeCustomPrompt(this.value);
+                    }
+                });
+            }
+        });
+
         // User Management Functions
         function showAddUserModal() {
             document.getElementById('addUserModal').style.display = 'block';
+            // Load regions into dropdown
+            loadRegionsForUserModal();
+            // Show/hide region field based on default role
+            toggleRegionField();
         }
         
         function closeAddUserModal() {
@@ -586,15 +1293,65 @@
             document.getElementById('addUserForm').reset();
         }
         
+        function toggleRegionField() {
+            const role = document.getElementById('newRole').value;
+            const regionFieldGroup = document.getElementById('regionFieldGroup');
+            const regionSelect = document.getElementById('newUserRegion');
+            
+            if (role === 'superadmin') {
+                // Superadmin users don't need a region
+                regionFieldGroup.style.display = 'none';
+                regionSelect.removeAttribute('required');
+            } else {
+                // Regular users and regional admins must have a region
+                regionFieldGroup.style.display = 'block';
+                regionSelect.setAttribute('required', 'required');
+            }
+        }
+        
+        function loadRegionsForUserModal() {
+            fetch('/api/regions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const select = document.getElementById('newUserRegion');
+                        select.innerHTML = '<option value="">Select Region...</option>';
+                        data.regions.forEach(region => {
+                            const option = document.createElement('option');
+                            option.value = region.id;
+                            option.textContent = region.name;
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading regions:', error);
+                });
+        }
+        
         function createUser(event) {
             event.preventDefault();
+            
+            const role = document.getElementById('newRole').value;
+            const regionId = document.getElementById('newUserRegion').value;
+            
+            // Validate region for non-superadmin users
+            if (role !== 'superadmin' && !regionId) {
+                showAlert('Please select a region for this user');
+                return;
+            }
             
             const userData = {
                 username: document.getElementById('newUsername').value,
                 email: document.getElementById('newEmail').value,
                 password: document.getElementById('newPassword').value,
-                role: document.getElementById('newRole').value
+                role: role
             };
+            
+            // Only include region_id for non-superadmin users
+            if (role !== 'superadmin' && regionId) {
+                userData.region_id = parseInt(regionId);
+            }
             
             fetch('/api/users', {
                 method: 'POST',
@@ -606,92 +1363,258 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    alert('Error: ' + data.error);
+                    showAlert('Error: ' + data.error);
                 } else {
-                    alert('User created successfully!');
-                    closeAddUserModal();
-                    location.reload();
+                    showAlert('User created successfully!', () => { closeAddUserModal(); location.reload(); });
                 }
             })
             .catch(error => {
-                alert('Error creating user: ' + error);
+                showAlert('Error creating user: ' + error);
+            });
+        }
+        
+        function showEditRegionModal(userId, username, currentRegionId) {
+            document.getElementById('editRegionModal').style.display = 'block';
+            document.getElementById('editUserId').value = userId;
+            document.getElementById('editUsername').value = username;
+            
+            // Load regions into dropdown
+            fetch('/api/regions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const select = document.getElementById('editUserRegion');
+                        select.innerHTML = '<option value="">Select Region...</option>';
+                        data.regions.forEach(region => {
+                            const option = document.createElement('option');
+                            option.value = region.id;
+                            option.textContent = region.name;
+                            if (currentRegionId && region.id == currentRegionId) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading regions:', error);
+                    showAlert('Failed to load regions');
+                });
+        }
+        
+        function closeEditRegionModal() {
+            document.getElementById('editRegionModal').style.display = 'none';
+            document.getElementById('editRegionForm').reset();
+        }
+        
+        // Location Migration Functions
+        function showLocationMigrationModal() {
+            document.getElementById('locationMigrationModal').style.display = 'block';
+            loadLocationsForMigration();
+        }
+        
+        function closeLocationMigrationModal() {
+            document.getElementById('locationMigrationModal').style.display = 'none';
+            document.getElementById('usersInLocationGroup').style.display = 'none';
+        }
+        
+        function loadLocationsForMigration() {
+            fetch('/api/locations')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const sourceSelect = document.getElementById('sourceLocation');
+                        const targetSelect = document.getElementById('targetLocation');
+                        
+                        sourceSelect.innerHTML = '<option value="">Select source location...</option>';
+                        targetSelect.innerHTML = '<option value="">Select target location...</option>';
+                        
+                        data.locations.forEach(location => {
+                            const regionText = location.region_name ? ` (${location.region_name})` : ' (Unassigned)';
+                            const optionText = `${location.name}${regionText}`;
+                            
+                            sourceSelect.innerHTML += `<option value="${location.id}">${optionText}</option>`;
+                            targetSelect.innerHTML += `<option value="${location.id}">${optionText}</option>`;
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading locations:', error);
+                    showAlert('Failed to load locations');
+                });
+        }
+        
+        function loadUsersInLocation() {
+            const sourceLocationId = document.getElementById('sourceLocation').value;
+            const usersGroup = document.getElementById('usersInLocationGroup');
+            const usersList = document.getElementById('usersInLocationList');
+            
+            if (!sourceLocationId) {
+                usersGroup.style.display = 'none';
+                return;
+            }
+            
+            fetch(`/api/users?location_id=${sourceLocationId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        usersList.innerHTML = '';
+                        
+                        if (data.users.length === 0) {
+                            usersList.innerHTML = '<p style="color: #666; font-style: italic;">No users found in this location.</p>';
+                        } else {
+                            data.users.forEach(user => {
+                                const userDiv = document.createElement('div');
+                                userDiv.style.cssText = 'margin-bottom: 8px; padding: 5px; border: 1px solid #eee; border-radius: 4px;';
+                                userDiv.innerHTML = `
+                                    <label style="display: flex; align-items: center; cursor: pointer;">
+                                        <input type="checkbox" value="${user.id}" checked style="margin-right: 8px;">
+                                        <strong>${user.username}</strong> (${user.role}) - ${user.email}
+                                    </label>
+                                `;
+                                usersList.appendChild(userDiv);
+                            });
+                        }
+                        
+                        usersGroup.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading users:', error);
+                    showAlert('Failed to load users for this location');
+                });
+        }
+        
+        function performLocationMigration(event) {
+            event.preventDefault();
+            
+            const sourceLocationId = document.getElementById('sourceLocation').value;
+            const targetLocationId = document.getElementById('targetLocation').value;
+            
+            if (!sourceLocationId || !targetLocationId) {
+                showAlert('Please select both source and target locations');
+                return;
+            }
+            
+            if (sourceLocationId === targetLocationId) {
+                showAlert('Source and target locations cannot be the same');
+                return;
+            }
+            
+            // Get selected users
+            const checkboxes = document.querySelectorAll('#usersInLocationList input[type="checkbox"]:checked');
+            const userIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (userIds.length === 0) {
+                showAlert('Please select at least one user to migrate');
+                return;
+            }
+            
+            const sourceLocationText = document.getElementById('sourceLocation').selectedOptions[0].text;
+            const targetLocationText = document.getElementById('targetLocation').selectedOptions[0].text;
+            
+            showConfirm(`Migrate ${userIds.length} user(s) from "${sourceLocationText}" to "${targetLocationText}"? This will update their region assignment and all related data.`, () => {
+            // Perform migration
+            fetch('/api/users/migrate-location', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    source_location_id: parseInt(sourceLocationId),
+                    target_location_id: parseInt(targetLocationId)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`✅ Successfully migrated ${data.migrated_count} user(s) to ${targetLocationText}`, () => { closeLocationMigrationModal(); location.reload(); });
+                } else {
+                    showAlert(`❌ Migration failed: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error performing migration:', error);
+                showAlert('Migration failed due to network error');
+            });
+            });
+        }
+        
+        function updateUserRegion(event) {
+            event.preventDefault();
+            
+            const userId = document.getElementById('editUserId').value;
+            const regionId = document.getElementById('editUserRegion').value;
+            
+            if (!regionId) {
+                showAlert('Please select a region');
+                return;
+            }
+            
+            fetch(`/api/users/${userId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ region_id: parseInt(regionId) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert('Error: ' + data.error);
+                } else {
+                    showAlert('User region updated successfully!', () => { closeEditRegionModal(); location.reload(); });
+                }
+            })
+            .catch(error => {
+                showAlert('Error updating user region: ' + error);
             });
         }
         
         function updateUserRole(userId, newRole) {
-            if (!confirm('Are you sure you want to change this user\'s role?')) {
-                location.reload();
-                return;
-            }
-            
+            showConfirm('Are you sure you want to change this user\'s role?', () => {
             fetch(`/api/users/${userId}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: newRole })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                    location.reload();
-                } else {
-                    alert('User role updated successfully!');
-                }
+            .then(response => {
+                if (!response.ok) return response.text().then(text => { throw new Error(text); });
+                return response.json();
             })
-            .catch(error => {
-                alert('Error updating role: ' + error);
-                location.reload();
+            .then(data => {
+                if (data.error) { showAlert('Error: ' + data.error); }
+                else { showAlert('User role updated successfully!', () => { saveOpenSections(); location.reload(); }); }
+            })
+            .catch(error => { showAlert('Error updating role: ' + error.message); });
             });
         }
-        
+
         function toggleUserStatus(userId, isActive) {
             const action = isActive ? 'deactivate' : 'activate';
-            if (!confirm(`Are you sure you want to ${action} this user?`)) {
-                return;
-            }
-            
+            showConfirm(`Are you sure you want to ${action} this user?`, () => {
             fetch(`/api/users/${userId}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ is_active: !isActive })
             })
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                } else {
-                    alert(`User ${action}d successfully!`);
-                    location.reload();
-                }
+                if (data.error) { showAlert('Error: ' + data.error); }
+                else { showAlert(`User ${action}d successfully!`, () => { saveOpenSections(); location.reload(); }); }
             })
-            .catch(error => {
-                alert('Error updating user status: ' + error);
+            .catch(error => { showAlert('Error updating user status: ' + error); });
             });
         }
-        
+
         function deleteUser(userId, username) {
-            if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
-                return;
-            }
-            
-            fetch(`/api/users/${userId}`, {
-                method: 'DELETE'
-            })
+            showConfirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`, () => {
+            fetch(`/api/users/${userId}`, { method: 'DELETE' })
             .then(response => response.json())
             .then(data => {
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                } else {
-                    alert('User deleted successfully!');
-                    location.reload();
-                }
+                if (data.error) { showAlert('Error: ' + data.error); }
+                else { showAlert('User deleted successfully!', () => { saveOpenSections(); location.reload(); }); }
             })
-            .catch(error => {
-                alert('Error deleting user: ' + error);
+            .catch(error => { showAlert('Error deleting user: ' + error); });
             });
         }
         
@@ -707,6 +1630,266 @@
                 section.classList.add('hidden');
                 button.textContent = 'Show Entry Management';
             }
+        });
+        
+        // Toggle Region Management Section
+        document.getElementById('toggleRegionManagement').addEventListener('click', function() {
+            const section = document.getElementById('regionManagementSection');
+            const button = document.getElementById('toggleRegionManagement');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                button.textContent = 'Hide Region Management';
+            } else {
+                section.classList.add('hidden');
+                button.textContent = 'Show Region Management';
+            }
+        });
+        
+        // Toggle Location Management Section
+        document.getElementById('toggleLocationManagement').addEventListener('click', function() {
+            const section = document.getElementById('locationManagementSection');
+            const button = document.getElementById('toggleLocationManagement');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                button.textContent = 'Hide Location Management';
+            } else {
+                section.classList.add('hidden');
+                button.textContent = 'Show Location Management';
+            }
+        });
+        
+        // Toggle User Management Section
+        document.getElementById('toggleUserManagement').addEventListener('click', function() {
+            const section = document.getElementById('userManagementSection');
+            const button = document.getElementById('toggleUserManagement');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                button.textContent = 'Hide User Management';
+            } else {
+                section.classList.add('hidden');
+                button.textContent = 'Show User Management';
+            }
+        });
+
+        // Activity Logs Toggle & Functions
+        {% if user.role == 'superadmin' %}
+        document.getElementById('toggleActivityLogs').addEventListener('click', function() {
+            const section = document.getElementById('activityLogsContent');
+            const button = document.getElementById('toggleActivityLogs');
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                button.textContent = 'Hide Activity Monitor';
+                loadOnlineUsers();
+                loadUsersDropdown();
+                loadActivityLogs();
+            } else {
+                section.classList.add('hidden');
+                button.textContent = 'Show Activity Monitor';
+            }
+        });
+
+        const ACTION_LABELS = {
+            'login': { label: '🔑 Login', color: '#28a745' },
+            'logout': { label: '🚪 Logout', color: '#6c757d' },
+            'task_create': { label: '📝 Task Created', color: '#17a2b8' },
+            'task_assign': { label: '✋ Task Assigned', color: '#007bff' },
+            'task_closed': { label: '✅ Task Closed', color: '#28a745' },
+            'task_in_progress': { label: '🔄 Task In Progress', color: '#fd7e14' },
+            'entry_add': { label: '➕ Entry Added', color: '#20c997' },
+            'entry_update': { label: '✏️ Entry Updated', color: '#ffc107' },
+            'entry_delete': { label: '🗑️ Entry Deleted', color: '#dc3545' },
+            'user_update': { label: '👤 User Updated', color: '#6f42c1' },
+            'user_delete': { label: '❌ User Deleted', color: '#dc3545' },
+            'profile_update': { label: '🖊️ Profile Updated', color: '#17a2b8' },
+            'password_change': { label: '🔒 Password Changed', color: '#fd7e14' },
+            'location_migration': { label: '📍 Location Migration', color: '#20c997' },
+        };
+
+        function loadOnlineUsers() {
+            fetch('/api/online_users')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('onlineUsersContainer');
+                    if (!data.success || data.online_users.length === 0) {
+                        container.innerHTML = '<p style="color:#999;text-align:center;padding:10px;">No active sessions found</p>';
+                        return;
+                    }
+                    const roleColors = { superadmin: '#9c27b0', regional_admin: '#1a73e8', user: '#28a745' };
+                    let html = `<div style="display:flex;flex-wrap:wrap;gap:10px;">`;
+                    data.online_users.forEach(u => {
+                        const color = roleColors[u.role] || '#666';
+                        html += `<div style="background:white;border:2px solid ${color};border-radius:8px;padding:10px 15px;min-width:180px;">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                <span style="width:10px;height:10px;background:#28a745;border-radius:50%;display:inline-block;"></span>
+                                <strong style="color:${color};">${u.username}</strong>
+                            </div>
+                            <div style="font-size:12px;color:#666;">Role: <span style="color:${color};font-weight:600;">${u.role}</span></div>
+                            <div style="font-size:11px;color:#999;margin-top:3px;">IP: ${u.ip || 'N/A'}</div>
+                            <div style="font-size:11px;color:#999;">Since: ${u.login_time ? new Date(u.login_time).toLocaleString() : 'N/A'}</div>
+                        </div>`;
+                    });
+                    html += `</div><div style="margin-top:8px;font-size:12px;color:#666;">${data.count} active session(s)</div>`;
+                    container.innerHTML = html;
+                })
+                .catch(() => {
+                    document.getElementById('onlineUsersContainer').innerHTML = '<p style="color:#dc3545;">Failed to load online users</p>';
+                });
+        }
+
+        function loadUsersDropdown() {
+            fetch('/api/users')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) return;
+                    const select = document.getElementById('logFilterUser');
+                    // Keep the "All Users" option, rebuild the rest
+                    select.innerHTML = '<option value="">-- All Users --</option>';
+                    data.users.forEach(u => {
+                        const opt = document.createElement('option');
+                        opt.value = u.username;
+                        opt.textContent = `${u.username} (${u.role})`;
+                        select.appendChild(opt);
+                    });
+                })
+                .catch(() => console.error('Failed to load users for dropdown'));
+        }
+
+        function loadActivityLogs() {
+            const user = document.getElementById('logFilterUser').value;
+            const action = document.getElementById('logFilterAction').value;
+            const from = document.getElementById('logFilterFrom').value;
+            const to = document.getElementById('logFilterTo').value;
+
+            // No limit - fetch ALL records for selected user
+            const params = new URLSearchParams({ limit: 999999 });
+            if (user) params.append('username', user);
+            if (action) params.append('action', action);
+            if (from) params.append('date_from', from);
+            if (to) params.append('date_to', to);
+
+            const tbody = document.getElementById('activityLogsBody');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">Loading...</td></tr>';
+
+            fetch('/api/activity_logs?' + params.toString())
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || data.logs.length === 0) {
+                        const label = user ? `No activity found for <strong>${user}</strong>` : 'No logs found';
+                        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#999;">${label}</td></tr>`;
+                        document.getElementById('activityLogsMeta').textContent = '';
+                        return;
+                    }
+                    tbody.innerHTML = '';
+                    data.logs.forEach((log, i) => {
+                        const info = ACTION_LABELS[log.action] || { label: log.action, color: '#333' };
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td style="color:#999;font-size:12px;">${i + 1}</td>
+                            <td style="font-size:12px;white-space:nowrap;">${log.timestamp || ''}</td>
+                            <td><strong>${log.username}</strong></td>
+                            <td><span style="background:${info.color}20;color:${info.color};padding:3px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;">${info.label}</span></td>
+                            <td style="font-size:13px;color:#555;">${log.description || ''}</td>
+                            <td style="font-size:12px;color:#999;">${log.ip || ''}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                    const userLabel = user ? ` for <strong>${user}</strong>` : '';
+                    document.getElementById('activityLogsMeta').innerHTML = `Showing all <strong>${data.logs.length}</strong> records${userLabel}`;
+                })
+                .catch(() => {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#dc3545;">Failed to load logs</td></tr>';
+                });
+        }
+
+        function clearLogFilters() {
+            document.getElementById('logFilterUser').value = '';
+            document.getElementById('logFilterAction').value = '';
+            document.getElementById('logFilterFrom').value = '';
+            document.getElementById('logFilterTo').value = '';
+            loadActivityLogs();
+        }
+
+        // Auto-refresh online users every 60 seconds when section is open
+        setInterval(() => {
+            const section = document.getElementById('activityLogsContent');
+            if (section && !section.classList.contains('hidden')) {
+                loadOnlineUsers();
+            }
+        }, 60000);
+        {% endif %}
+        
+        // Section state persistence - save open sections before reload, restore after
+        const SECTION_IDS = [
+            { section: 'entryManagementSection',  button: 'toggleEntryManagement',   showText: 'Hide Entry Management',    hideText: 'Show Entry Management' },
+            { section: 'regionManagementSection', button: 'toggleRegionManagement',  showText: 'Hide Region Management',   hideText: 'Show Region Management' },
+            { section: 'locationManagementSection', button: 'toggleLocationManagement', showText: 'Hide Location Management', hideText: 'Show Location Management' },
+            { section: 'userManagementSection',   button: 'toggleUserManagement',    showText: 'Hide User Management',     hideText: 'Show User Management' },
+            { section: 'activityLogsContent',     button: 'toggleActivityLogs',      showText: 'Hide Activity Monitor',    hideText: 'Show Activity Monitor' },
+        ];
+
+        function saveOpenSections() {
+            const open = SECTION_IDS
+                .filter(s => {
+                    const el = document.getElementById(s.section);
+                    return el && !el.classList.contains('hidden');
+                })
+                .map(s => s.section);
+            sessionStorage.setItem('adminOpenSections', JSON.stringify(open));
+        }
+
+        function restoreOpenSections() {
+            const saved = sessionStorage.getItem('adminOpenSections');
+            if (!saved) return;
+            const open = JSON.parse(saved);
+            sessionStorage.removeItem('adminOpenSections');
+            open.forEach(sectionId => {
+                const cfg = SECTION_IDS.find(s => s.section === sectionId);
+                if (!cfg) return;
+                const section = document.getElementById(cfg.section);
+                const button = document.getElementById(cfg.button);
+                if (section) section.classList.remove('hidden');
+                if (button) button.textContent = cfg.showText;
+            });
+        }
+
+        // Wrap location.reload() to always save state first
+        const _origReload = location.reload.bind(location);
+        location.reload = function() { saveOpenSections(); _origReload(); };
+
+        // Role-based access control - hide sections based on user role
+        document.addEventListener('DOMContentLoaded', function() {
+            restoreOpenSections();
+            const userRole = '{{ user.role }}';
+            
+            // Hide User Management for regional_admin
+            if (userRole === 'regional_admin') {
+                const userManagementSection = document.getElementById('userManagementSection');
+                const userManagementToggle = document.getElementById('toggleUserManagement');
+                if (userManagementSection) {
+                    userManagementSection.classList.add('hidden');
+                }
+                if (userManagementToggle) {
+                    userManagementToggle.style.display = 'none';
+                }
+            }
+            
+            // Hide Region Management for regional_admin
+            const regionManagementSection = document.getElementById('regionManagementSection');
+            const regionManagementToggle = document.getElementById('toggleRegionManagement');
+            if (userRole === 'regional_admin') {
+                if (regionManagementSection) {
+                    regionManagementSection.classList.add('hidden');
+                }
+                if (regionManagementToggle) {
+                    regionManagementToggle.style.display = 'none';
+                }
+            }
+            
+            // Load locations
+            loadLocations();
         });
         
         // Load device IPs for maintenance and assignment
@@ -765,115 +1948,10 @@
                 })
                 .catch(error => {
                     console.error('Error loading devices:', error);
-                    alert('Failed to load device list: ' + error.message);
+                    showAlert('Failed to load device list: ' + error.message);
                 });
         }
         
-        // Load maintenance windows
-        function loadMaintenanceWindows() {
-            fetch('/api/maintenance')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to fetch maintenance windows');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    const container = document.getElementById('maintenanceContainer');
-                    const windows = data.maintenance_windows || {};
-                    
-                    if (Object.keys(windows).length === 0) {
-                        container.innerHTML = '<p>No active maintenance windows</p>';
-                    } else {
-                        const html = Object.entries(windows).map(([ip, maintenance]) => `
-                            <div class="maintenance-item">
-                                <div class="maintenance-header">
-                                    <span class="maintenance-ip">${ip}</span>
-                                    <button class="maintenance-remove" onclick="removeMaintenanceWindow('${ip}')">Remove</button>
-                                </div>
-                                <div class="maintenance-details">
-                                    <div><strong>Reason:</strong> ${maintenance.reason}</div>
-                                    <div><strong>Start:</strong> <span class="maintenance-time">${maintenance.start}</span></div>
-                                    <div><strong>End:</strong> <span class="maintenance-time">${maintenance.end}</span></div>
-                                    <div><strong>Remaining:</strong> ${maintenance.remaining}</div>
-                                </div>
-                            </div>
-                        `).join('');
-                        container.innerHTML = html;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading maintenance windows:', error);
-                    document.getElementById('maintenanceContainer').innerHTML = '<p style="color: red;">Error loading maintenance windows</p>';
-                });
-        }
-        
-        // Add maintenance window
-        function addMaintenanceWindow() {
-            const ip = document.getElementById('maintenanceIp').value;
-            const startTime = document.getElementById('maintenanceStart').value;
-            const endTime = document.getElementById('maintenanceEnd').value;
-            const reason = document.getElementById('maintenanceReason').value || 'Scheduled maintenance';
-            
-            if (!ip || ip === 'manual') {
-                alert('Please select a device IP');
-                return;
-            }
-            
-            if (!startTime || !endTime) {
-                alert('Please select both start and end times');
-                return;
-            }
-            
-            fetch('/api/maintenance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sm_ip: ip,
-                    start_time: startTime,
-                    end_time: endTime,
-                    reason: reason
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Maintenance window scheduled successfully');
-                    loadMaintenanceWindows();
-                    // Clear form
-                    document.getElementById('maintenanceIp').value = '';
-                    document.getElementById('maintenanceStart').value = '';
-                    document.getElementById('maintenanceEnd').value = '';
-                    document.getElementById('maintenanceReason').value = '';
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Error scheduling maintenance window');
-            });
-        }
-        
-        // Remove maintenance window
-        function removeMaintenanceWindow(ip) {
-            if (!confirm(`Remove maintenance window for ${ip}?`)) return;
-            
-            fetch(`/api/maintenance/${ip}`, { method: 'DELETE' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('Maintenance window removed');
-                        loadMaintenanceWindows();
-                    } else {
-                        alert('Error: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Error removing maintenance window');
-                });
-        }
         
         // Assign device
         function assignDevice() {
@@ -882,12 +1960,12 @@
             const comment = document.getElementById('assignComment').value;
             
             if (!deviceIp) {
-                alert('Please select a device');
+                showAlert('Please select a device');
                 return;
             }
             
             if (!userId) {
-                alert('Please select a user');
+                showAlert('Please select a user');
                 return;
             }
             
@@ -903,18 +1981,18 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert(data.message);
+                    showAlert(data.message);
                     // Clear form
                     document.getElementById('assignDeviceIp').value = '';
                     document.getElementById('assignUserId').value = '';
                     document.getElementById('assignComment').value = '';
                 } else {
-                    alert('Error: ' + data.error);
+                    showAlert('Error: ' + data.error);
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('Error assigning device');
+                showAlert('Error assigning device');
             });
         }
         
@@ -922,7 +2000,8 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Admin panel loaded, initializing...');
             loadDeviceIPs();
-            loadMaintenanceWindows();
+            loadRegions();
+            loadLocations();
             
             // Refresh maintenance windows every 30 seconds
             setInterval(loadMaintenanceWindows, 30000);
@@ -946,11 +2025,10 @@
                     contentType: 'application/json',
                     data: JSON.stringify(data),
                     success: function(response) {
-                        alert(response.success || 'Entry added');
-                        location.reload();
+                        showAlert(response.success || 'Entry added', () => { saveOpenSections(); location.reload(); });
                     },
                     error: function(xhr) {
-                        alert(xhr.responseJSON.error || 'Error adding entry');
+                        showAlert(xhr.responseJSON.error || 'Error adding entry');
                     }
                 });
             });
@@ -975,11 +2053,11 @@
             const row = $(`tr:contains(${sm_ip})`);
             const data = {
                 sm_ip: sm_ip,
-                ap_name: row.find('td').eq(0).text(),
-                ap_ip: row.find('td').eq(1).text(),
-                cid: row.find('td').eq(2).text(),
-                org_name: row.find('td').eq(4).text(),
-                location: row.find('td').eq(5).text()
+                ap_name: row.find('td').eq(1).text(),
+                ap_ip: row.find('td').eq(2).text(),
+                cid: row.find('td').eq(3).text(),
+                org_name: row.find('td').eq(5).text(),
+                location: row.find('td').eq(6).text()
             };
             const form = $('#add-entry-form');
             
@@ -1011,33 +2089,840 @@
                     contentType: 'application/json',
                     data: JSON.stringify(updatedData),
                     success: function(response) {
-                        alert(response.success || 'Entry updated');
-                        location.reload();
+                        showAlert(response.success || 'Entry updated', () => { saveOpenSections(); location.reload(); });
                     },
                     error: function(xhr) {
-                        alert(xhr.responseJSON.error || 'Error updating entry');
+                        showAlert(xhr.responseJSON.error || 'Error updating entry');
                     }
                 });
             });
         }
 
         function deleteEntry(sm_ip) {
-            if (confirm('Are you sure you want to delete this entry?')) {
+            showConfirm('Are you sure you want to delete this entry?', () => {
                 $.ajax({
                     url: '/admin/delete_entry',
                     type: 'POST',
                     contentType: 'application/json',
                     data: JSON.stringify({ sm_ip: sm_ip }),
                     success: function(response) {
-                        alert(response.success || 'Entry deleted');
-                        location.reload();
+                        showAlert(response.success || 'Entry deleted', () => { saveOpenSections(); location.reload(); });
                     },
                     error: function(xhr) {
-                        alert(xhr.responseJSON.error || 'Error deleting entry');
+                        showAlert(xhr.responseJSON.error || 'Error deleting entry');
                     }
                 });
+            });
+        }
+
+        // Region Management Functions
+        function loadRegions() {
+            $.get('/api/regions', function(data) {
+                if (data.success) {
+                    const tbody = $('#regionsTableBody');
+                    const filterSelect = $('#filterRegion');
+                    const locationRegionSelect = $('#locationRegion');
+                    
+                    tbody.empty();
+                    filterSelect.html('<option value="">All Regions</option>');
+                    locationRegionSelect.html('<option value="">Select Region...</option>');
+                    
+                    if (data.regions.length === 0) {
+                        tbody.append('<tr><td colspan="5" style="text-align: center;">No regions found. Add your first region!</td></tr>');
+                    } else {
+                        // Use Promise.all to wait for all location counts before rendering
+                        const promises = data.regions.map(function(region) {
+                            return $.get('/api/locations?region_id=' + region.id)
+                                .then(function(locData) {
+                                    return {
+                                        region: region,
+                                        locationCount: locData.success ? locData.locations.length : 0
+                                    };
+                                });
+                        });
+                        
+                        Promise.all(promises).then(function(results) {
+                            // Render table rows
+                            results.forEach(function(result) {
+                                const region = result.region;
+                                const locationCount = result.locationCount;
+                                
+                                tbody.append(`
+                                    <tr>
+                                        <td><strong>${region.name}</strong></td>
+                                        <td>${region.description || '-'}</td>
+                                        <td>${locationCount} locations</td>
+                                        <td>${region.created_at}</td>
+                                        <td>
+                                            <button class="btn-small" onclick="editRegion(${region.id}, '${region.name}', '${region.description || ''}')">Edit</button>
+                                            <button class="btn-small btn-danger" onclick="deleteRegion(${region.id}, '${region.name}')">Delete</button>
+                                        </td>
+                                    </tr>
+                                `);
+                            });
+                            
+                            // Populate dropdowns ONCE after all rows are rendered
+                            data.regions.forEach(function(region) {
+                                filterSelect.append(`<option value="${region.id}">${region.name}</option>`);
+                                locationRegionSelect.append(`<option value="${region.id}">${region.name}</option>`);
+                            });
+                        });
+                    }
+                }
+            }).fail(function(xhr) {
+                $('#regionsTableBody').html('<tr><td colspan="5" style="text-align: center; color: red;">Error loading regions</td></tr>');
+            });
+        }
+
+        function showAddRegionModal() {
+            $('#regionModalTitle').text('Add New Region');
+            $('#regionId').val('');
+            $('#regionName').val('');
+            $('#regionDescription').val('');
+            $('#addRegionModal').show();
+        }
+
+        function editRegion(id, name, description) {
+            $('#regionModalTitle').text('Edit Region');
+            $('#regionId').val(id);
+            $('#regionName').val(name);
+            $('#regionDescription').val(description);
+            $('#addRegionModal').show();
+        }
+
+        function closeRegionModal() {
+            $('#addRegionModal').hide();
+        }
+
+        function saveRegion(event) {
+            event.preventDefault();
+            
+            const regionId = $('#regionId').val();
+            const data = {
+                name: $('#regionName').val().trim(),
+                description: $('#regionDescription').val().trim()
+            };
+            
+            const url = regionId ? `/api/regions/${regionId}` : '/api/regions';
+            const method = regionId ? 'PUT' : 'POST';
+            
+            $.ajax({
+                url: url,
+                type: method,
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    showAlert(response.message);
+                    closeRegionModal();
+                    loadRegions();
+                    loadLocations();
+                },
+                error: function(xhr) {
+                    showAlert(xhr.responseJSON.error || 'Error saving region');
+                }
+            });
+        }
+
+        function deleteRegion(id, name) {
+            showConfirm(`Are you sure you want to delete region "${name}"?`, () => {
+                $.ajax({
+                    url: `/api/regions/${id}`,
+                    type: 'DELETE',
+                    success: function(response) {
+                        showAlert(response.message);
+                        loadRegions();
+                        loadLocations();
+                    },
+                    error: function(xhr) {
+                        showAlert(xhr.responseJSON.error || 'Error deleting region');
+                    }
+                });
+            });
+        }
+
+        // Location Management Functions
+        function loadLocations() {
+            const regionFilter = $('#filterRegion').val();
+            let url = '/api/locations';
+            
+            if (regionFilter === 'unassigned') {
+                url = '/api/locations?unassigned=true';
+            } else if (regionFilter) {
+                url = `/api/locations?region_id=${regionFilter}`;
+            }
+            
+            $.get(url, function(data) {
+                if (data.success) {
+                    const tbody = $('#locationsTableBody');
+                    tbody.empty();
+                    
+                    if (data.locations.length === 0) {
+                        const message = regionFilter === 'unassigned' 
+                            ? 'No unassigned locations found. All locations have been assigned to regions!' 
+                            : 'No locations found. Add your first location!';
+                        tbody.append(`<tr><td colspan="6" style="text-align: center;">${message}</td></tr>`);
+                    } else {
+                        data.locations.forEach(function(location) {
+                            // Get device count from API response
+                            const deviceCount = location.device_count || 0;
+                            
+                            // Handle NULL region
+                            const regionDisplay = location.region_name || '<span style="color: #dc3545; font-weight: bold;">⚠️ Unassigned</span>';
+                            const regionIdForEdit = location.region_id || '';
+                            
+                            tbody.append(`
+                                <tr>
+                                    <td><strong>${location.name}</strong></td>
+                                    <td>${regionDisplay}</td>
+                                    <td>${location.description || '-'}</td>
+                                    <td>${deviceCount} devices</td>
+                                    <td>${location.created_at}</td>
+                                    <td>
+                                        <button class="btn-small" onclick="editLocation(${location.id}, '${location.name}', '${regionIdForEdit}', '${location.description || ''}')">Edit</button>
+                                        <button class="btn-small btn-danger" onclick="deleteLocation(${location.id}, '${location.name}')">Delete</button>
+                                    </td>
+                                </tr>
+                            `);
+                        });
+                    }
+                }
+            }).fail(function(xhr) {
+                $('#locationsTableBody').html('<tr><td colspan="6" style="text-align: center; color: red;">Error loading locations</td></tr>');
+            });
+        }
+
+        function filterLocationsTable() {
+            const searchTerm = $('#searchLocations').val().toLowerCase();
+            const rows = $('#locationsTableBody tr');
+            
+            rows.each(function() {
+                const locationName = $(this).find('td:first').text().toLowerCase();
+                if (locationName.includes(searchTerm)) {
+                    $(this).show();
+                } else {
+                    $(this).hide();
+                }
+            });
+        }
+
+        function showAddLocationModal() {
+            $('#locationModalTitle').text('Add New Location');
+            $('#locationId').val('');
+            $('#locationName').val('');
+            $('#locationRegion').val('');
+            $('#locationDescription').val('');
+            $('#addLocationModal').show();
+        }
+
+        function editLocation(id, name, regionId, description) {
+            $('#locationModalTitle').text('Edit Location');
+            $('#locationId').val(id);
+            $('#locationName').val(name);
+            $('#locationRegion').val(regionId);
+            $('#locationDescription').val(description);
+            $('#addLocationModal').show();
+        }
+
+        function closeLocationModal() {
+            $('#addLocationModal').hide();
+        }
+
+        function saveLocation(event) {
+            event.preventDefault();
+            
+            const locationId = $('#locationId').val();
+            const data = {
+                name: $('#locationName').val().trim(),
+                region_id: parseInt($('#locationRegion').val()),
+                description: $('#locationDescription').val().trim()
+            };
+            
+            if (!data.region_id) {
+                showAlert('Please select a region');
+                return;
+            }
+            
+            const url = locationId ? `/api/locations/${locationId}` : '/api/locations';
+            const method = locationId ? 'PUT' : 'POST';
+            
+            $.ajax({
+                url: url,
+                type: method,
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    showAlert(response.message);
+                    closeLocationModal();
+                    loadLocations();
+                    loadRegions(); // Refresh region counts
+                },
+                error: function(xhr) {
+                    showAlert(xhr.responseJSON.error || 'Error saving location');
+                }
+            });
+        }
+
+        function deleteLocation(id, name) {
+            showConfirm(`Are you sure you want to delete location "${name}"?`, () => {
+                $.ajax({
+                    url: `/api/locations/${id}`,
+                    type: 'DELETE',
+                    success: function(response) {
+                        showAlert(response.message);
+                        loadLocations();
+                        loadRegions(); // Refresh region counts
+                    },
+                    error: function(xhr) {
+                        showAlert(xhr.responseJSON.error || 'Error deleting location');
+                    }
+                });
+            });
+        }
+
+        // Bulk Reassign Functions
+        function showBulkReassignModal() {
+            $('#bulkReassignModal').show();
+            
+            // Load regions for target selection
+            $.get('/api/regions', function(data) {
+                if (data.success) {
+                    const select = $('#bulkTargetRegion');
+                    select.html('<option value="">Select Region...</option>');
+                    data.regions.forEach(function(region) {
+                        select.append(`<option value="${region.id}">${region.name}</option>`);
+                    });
+                }
+            });
+            
+            // Load all locations with checkboxes
+            $.get('/api/locations', function(data) {
+                if (data.success) {
+                    const container = $('#bulkLocationsList');
+                    container.empty();
+                    
+                    if (data.locations.length === 0) {
+                        container.html('<p style="text-align: center; color: #666;">No locations found</p>');
+                    } else {
+                        // Group by region
+                        const byRegion = {};
+                        data.locations.forEach(function(loc) {
+                            if (!byRegion[loc.region_name]) {
+                                byRegion[loc.region_name] = [];
+                            }
+                            byRegion[loc.region_name].push(loc);
+                        });
+                        
+                        // Display grouped by region
+                        Object.keys(byRegion).sort().forEach(function(regionName) {
+                            container.append(`<div style="margin-bottom: 15px;">
+                                <strong style="color: #667eea; font-size: 14px;">${regionName}</strong>
+                                <div style="margin-left: 20px; margin-top: 5px;">
+                                    ${byRegion[regionName].map(loc => `
+                                        <label style="display: block; padding: 5px; cursor: pointer; hover: background: #f0f0f0;">
+                                            <input type="checkbox" class="bulk-location-checkbox" value="${loc.id}" data-name="${loc.name}">
+                                            ${loc.name}
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>`);
+                        });
+                        
+                        // Add select all button
+                        container.prepend(`
+                            <div style="margin-bottom: 10px; padding: 10px; background: #e9ecef; border-radius: 4px;">
+                                <label style="cursor: pointer; font-weight: bold;">
+                                    <input type="checkbox" id="selectAllLocations" onchange="toggleAllLocations(this.checked)">
+                                    Select All Locations
+                                </label>
+                            </div>
+                        `);
+                    }
+                }
+            });
+        }
+
+        function closeBulkReassignModal() {
+            $('#bulkReassignModal').hide();
+        }
+
+        function toggleAllLocations(checked) {
+            $('.bulk-location-checkbox').prop('checked', checked);
+        }
+
+        function executeBulkReassign() {
+            const targetRegionId = $('#bulkTargetRegion').val();
+            
+            if (!targetRegionId) {
+                showAlert('Please select a target region');
+                return;
+            }
+            
+            const selectedLocations = [];
+            $('.bulk-location-checkbox:checked').each(function() {
+                selectedLocations.push({ id: $(this).val(), name: $(this).data('name') });
+            });
+            
+            if (selectedLocations.length === 0) {
+                showAlert('Please select at least one location');
+                return;
+            }
+            
+            const targetRegionName = $('#bulkTargetRegion option:selected').text();
+            
+            showConfirm(`Reassign ${selectedLocations.length} location(s) to ${targetRegionName}?`, () => {
+            let completed = 0;
+            let errors = 0;
+            selectedLocations.forEach(function(location) {
+                $.ajax({
+                    url: `/api/locations/${location.id}`,
+                    type: 'PUT',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ name: location.name, region_id: parseInt(targetRegionId), description: '' }),
+                    success: function() {
+                        completed++;
+                        if (completed + errors === selectedLocations.length) finishBulkReassign(completed, errors, targetRegionName);
+                    },
+                    error: function() {
+                        errors++;
+                        if (completed + errors === selectedLocations.length) finishBulkReassign(completed, errors, targetRegionName);
+                    }
+                });
+            });
+            });
+        }
+
+        function finishBulkReassign(completed, errors, targetRegionName) {
+            if (errors === 0) {
+                showAlert(`✅ Successfully reassigned ${completed} location(s) to ${targetRegionName}`);
+            } else {
+                showAlert(`⚠️ Reassigned ${completed} location(s), ${errors} failed`);
+            }
+            closeBulkReassignModal();
+            loadLocations();
+            loadRegions();
+        }
+
+        // Additional initialization on jQuery ready
+        $(document).ready(function() {
+            // Only refresh location dropdown, regions and locations already loaded by DOMContentLoaded
+            refreshLocationDropdown(); // Load locations into entry form dropdown
+        });
+        
+        // Refresh location dropdown in Entry Management
+        function refreshLocationDropdown() {
+            $.get('/api/locations', function(data) {
+                if (data.success) {
+                    const select = $('#location');
+                    const filterSelect = $('#filterEntryLocation');
+                    const currentValue = select.val();
+                    
+                    // Clear and rebuild options
+                    select.html('<option value="">Select Location</option>');
+                    filterSelect.html('<option value="">All Locations</option>');
+                    
+                    // Sort locations alphabetically
+                    const sortedLocations = data.locations.sort((a, b) => a.name.localeCompare(b.name));
+                    
+                    sortedLocations.forEach(function(location) {
+                        select.append(`<option value="${location.name}">${location.name}</option>`);
+                        filterSelect.append(`<option value="${location.name}">${location.name}</option>`);
+                    });
+                    
+                    // Restore previous selection if it still exists
+                    if (currentValue) {
+                        select.val(currentValue);
+                    }
+                    
+                    console.log(`Loaded ${data.locations.length} locations into dropdown`);
+                }
+            }).fail(function() {
+                console.error('Failed to load locations for dropdown');
+            });
+        }
+        
+        // Load regions into filter dropdown
+        function loadRegionsForEntryFilter() {
+            $.get('/api/regions', function(data) {
+                if (data.success) {
+                    const filterSelect = $('#filterEntryRegion');
+                    filterSelect.html('<option value="">All Regions</option>');
+                    
+                    data.regions.forEach(function(region) {
+                        filterSelect.append(`<option value="${region.id}">${region.name}</option>`);
+                    });
+                }
+            });
+        }
+        
+        // Filter entries by location
+        function filterEntriesByLocation() {
+            const selectedLocation = $('#filterEntryLocation').val();
+            const searchTerm = $('#search-input').val().toLowerCase();
+            let visibleCount = 0;
+            
+            $('#entries-table tr.entry-row').each(function() {
+                const row = $(this);
+                const location = row.data('location');
+                const rowText = row.text().toLowerCase();
+                
+                const matchesLocation = !selectedLocation || location === selectedLocation;
+                const matchesSearch = !searchTerm || rowText.includes(searchTerm);
+                
+                if (matchesLocation && matchesSearch) {
+                    row.show();
+                    visibleCount++;
+                } else {
+                    row.hide();
+                }
+            });
+            
+            $('#entryCount').text(`Showing ${visibleCount} entries`);
+        }
+        
+        // Handle region filter change - populate location dropdown with region's locations
+        function onRegionFilterChange() {
+            const selectedRegionId = $('#filterEntryRegion').val();
+            const locationSelect = $('#filterEntryLocation');
+            
+            if (!selectedRegionId) {
+                // If no region selected, show all locations
+                locationSelect.prop('disabled', false);
+                refreshLocationDropdown();
+                filterEntriesByLocation();
+                return;
+            }
+            
+            // Get locations for this region
+            $.get('/api/locations?region_id=' + selectedRegionId, function(data) {
+                if (data.success) {
+                    // Populate location dropdown with only this region's locations
+                    locationSelect.html('<option value="">All Locations (in selected region)</option>');
+                    
+                    const sortedLocations = data.locations.sort((a, b) => a.name.localeCompare(b.name));
+                    sortedLocations.forEach(function(location) {
+                        locationSelect.append(`<option value="${location.name}">${location.name}</option>`);
+                    });
+                    
+                    locationSelect.prop('disabled', false);
+                    
+                    // Filter entries by region
+                    filterEntriesByRegion();
+                }
+            });
+        }
+        
+        // Filter entries by region
+        function filterEntriesByRegion() {
+            const selectedRegionId = $('#filterEntryRegion').val();
+            const selectedLocation = $('#filterEntryLocation').val();
+            
+            if (!selectedRegionId) {
+                // If no region selected, use location filter
+                filterEntriesByLocation();
+                return;
+            }
+            
+            // Get locations for this region
+            $.get('/api/locations?region_id=' + selectedRegionId, function(data) {
+                if (data.success) {
+                    const regionLocations = data.locations.map(loc => loc.name);
+                    const searchTerm = $('#search-input').val().toLowerCase();
+                    let visibleCount = 0;
+                    
+                    $('#entries-table tr.entry-row').each(function() {
+                        const row = $(this);
+                        const location = row.data('location');
+                        const rowText = row.text().toLowerCase();
+                        
+                        // Check if matches region
+                        const matchesRegion = regionLocations.includes(location);
+                        
+                        // Check if matches specific location (if selected)
+                        const matchesLocation = !selectedLocation || location === selectedLocation;
+                        
+                        // Check if matches search
+                        const matchesSearch = !searchTerm || rowText.includes(searchTerm);
+                        
+                        if (matchesRegion && matchesLocation && matchesSearch) {
+                            row.show();
+                            visibleCount++;
+                        } else {
+                            row.hide();
+                        }
+                    });
+                    
+                    $('#entryCount').text(`Showing ${visibleCount} entries`);
+                }
+            });
+        }
+        
+        // Bulk selection functionality
+        let bulkSelectEnabled = false;
+        
+        function toggleBulkSelect() {
+            bulkSelectEnabled = !bulkSelectEnabled;
+            
+            if (bulkSelectEnabled) {
+                $('#bulkSelectText').text('Disable Bulk Select');
+                $('#selectAllHeader').show();
+                $('.select-cell').show();
+                $('#bulkActionsBar').show();
+            } else {
+                $('#bulkSelectText').text('Enable Bulk Select');
+                $('#selectAllHeader').hide();
+                $('.select-cell').hide();
+                $('#bulkActionsBar').hide();
+                deselectAll();
             }
         }
+        
+        function toggleSelectAll() {
+            const checked = $('#selectAllCheckbox').prop('checked');
+            $('.entry-checkbox:visible').prop('checked', checked);
+            updateSelectedCount();
+        }
+        
+        function selectAllVisible() {
+            $('#entries-table tr.entry-row:visible .entry-checkbox').prop('checked', true);
+            updateSelectedCount();
+        }
+        
+        function deselectAll() {
+            $('.entry-checkbox').prop('checked', false);
+            $('#selectAllCheckbox').prop('checked', false);
+            updateSelectedCount();
+        }
+        
+        function updateSelectedCount() {
+            const count = $('.entry-checkbox:checked').length;
+            $('#selectedCount').text(`${count} selected`);
+        }
+        
+        // Update count when checkboxes change
+        $(document).on('change', '.entry-checkbox', updateSelectedCount);
+        
+        // Bulk change location
+        function bulkChangeLocation() {
+            const selectedIPs = [];
+            $('.entry-checkbox:checked').each(function() {
+                selectedIPs.push($(this).val());
+            });
+            
+            if (selectedIPs.length === 0) {
+                showAlert('Please select at least one entry');
+                return;
+            }
+            
+            showPrompt(`Change location for ${selectedIPs.length} selected entries to:`, '', (newLocation) => {
+            if (!newLocation) return;
+            
+            // Verify location exists
+            $.get('/api/locations', function(data) {
+                if (data.success) {
+                    const locationExists = data.locations.some(loc => loc.name === newLocation);
+                    
+                    if (!locationExists) {
+                        showAlert('Location does not exist. Please create it first in Location Management.');
+                        return;
+                    }
+                    
+                    // Update each entry
+                    let completed = 0;
+                    let failed = 0;
+                    
+                    selectedIPs.forEach(function(ip) {
+                        $.ajax({
+                            url: '/admin/update_entry',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ old_sm_ip: ip, sm_ip: ip, location: newLocation }),
+                            success: function() {
+                                completed++;
+                                if (completed + failed === selectedIPs.length) {
+                                    showAlert(`Updated ${completed} entries successfully. ${failed} failed.`, () => { saveOpenSections(); location.reload(); });
+                                }
+                            },
+                            error: function() {
+                                failed++;
+                                if (completed + failed === selectedIPs.length) {
+                                    showAlert(`Updated ${completed} entries successfully. ${failed} failed.`, () => { saveOpenSections(); location.reload(); });
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+            }); // end showPrompt
+        }
+        
+        // Bulk delete entries
+        function bulkDeleteEntries() {
+            const selectedIPs = [];
+            $('.entry-checkbox:checked').each(function() {
+                selectedIPs.push($(this).val());
+            });
+            
+            if (selectedIPs.length === 0) {
+                showAlert('Please select at least one entry');
+                return;
+            }
+            
+            showConfirm(`Are you sure you want to delete ${selectedIPs.length} entries? This cannot be undone.`, () => {
+            let completed = 0;
+            let failed = 0;
+            
+            selectedIPs.forEach(function(ip) {
+                $.ajax({
+                    url: '/admin/delete_entry',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ sm_ip: ip }),
+                    success: function() {
+                        completed++;
+                        if (completed + failed === selectedIPs.length) {
+                            showAlert(`Deleted ${completed} entries successfully. ${failed} failed.`, () => { saveOpenSections(); location.reload(); });
+                        }
+                    },
+                    error: function() {
+                        failed++;
+                        if (completed + failed === selectedIPs.length) {
+                            showAlert(`Deleted ${completed} entries successfully. ${failed} failed.`, () => { saveOpenSections(); location.reload(); });
+                        }
+                    }
+                });
+            });
+            });
+        }
+        
+        // Update search to work with filters
+        $(document).ready(function() {
+            $('#search-input').on('keyup', function() {
+                filterEntriesByLocation();
+            });
+            
+            // Load regions for filter
+            loadRegionsForEntryFilter();
+        });
+        
+        // Bulk Import Functions
+        function downloadTemplate() {
+            window.location.href = '/admin/download_template';
+        }
+        
+        function handleBulkUpload() {
+            const fileInput = document.getElementById('bulkUploadFile');
+            const file = fileInput.files[0];
+            
+            if (!file) return;
+            
+            // Show file name
+            document.getElementById('uploadFileName').textContent = file.name;
+            
+            // Show progress
+            document.getElementById('uploadProgress').style.display = 'block';
+            document.getElementById('uploadResults').style.display = 'none';
+            document.getElementById('progressBar').style.width = '10%';
+            document.getElementById('progressText').textContent = 'Uploading file...';
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Upload file
+            fetch('/admin/bulk_import', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('progressBar').style.width = '100%';
+                document.getElementById('progressText').textContent = 'Processing complete!';
+                
+                // Show results
+                setTimeout(() => {
+                    document.getElementById('uploadProgress').style.display = 'none';
+                    showImportResults(data);
+                }, 500);
+            })
+            .catch(error => {
+                document.getElementById('uploadProgress').style.display = 'none';
+                showAlert('Upload failed: ' + error.message);
+            });
+        }
+        
+        function showImportResults(data) {
+            const resultsDiv = document.getElementById('uploadResults');
+            const contentDiv = document.getElementById('resultsContent');
+            
+            let html = '<div style="margin-bottom: 15px;">';
+            
+            if (data.success) {
+                html += `<div style="padding: 10px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; margin-bottom: 10px;">
+                    <strong style="color: #155724;">✓ Import Successful</strong>
+                </div>`;
+                
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px;">';
+                html += `<div style="padding: 10px; background: #d1ecf1; border-radius: 5px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #0c5460;">${data.added}</div>
+                    <div style="font-size: 12px; color: #0c5460;">Entries Added</div>
+                </div>`;
+                html += `<div style="padding: 10px; background: #fff3cd; border-radius: 5px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #856404;">${data.skipped}</div>
+                    <div style="font-size: 12px; color: #856404;">Duplicates Skipped</div>
+                </div>`;
+                html += `<div style="padding: 10px; background: #f8d7da; border-radius: 5px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #721c24;">${data.errors}</div>
+                    <div style="font-size: 12px; color: #721c24;">Errors</div>
+                </div>`;
+                html += `<div style="padding: 10px; background: #d4edda; border-radius: 5px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #155724;">${data.locations_created}</div>
+                    <div style="font-size: 12px; color: #155724;">New Locations</div>
+                </div>`;
+                html += '</div>';
+                
+                if (data.new_locations && data.new_locations.length > 0) {
+                    html += '<div style="padding: 10px; background: #e7f3ff; border-radius: 5px; margin-bottom: 10px;">';
+                    html += '<strong>New Locations Created:</strong><br>';
+                    html += data.new_locations.map(loc => `<span style="display: inline-block; padding: 2px 8px; background: white; border-radius: 3px; margin: 2px;">${loc}</span>`).join(' ');
+                    html += '</div>';
+                }
+                
+                if (data.details && data.details.length > 0) {
+                    html += '<details style="margin-top: 10px;"><summary style="cursor: pointer; font-weight: bold;">View Details</summary>';
+                    html += '<div style="margin-top: 10px; max-height: 300px; overflow-y: auto; font-size: 12px;">';
+                    data.details.forEach(detail => {
+                        let color = '#155724';
+                        let bg = '#d4edda';
+                        if (detail.includes('Skipped')) {
+                            color = '#856404';
+                            bg = '#fff3cd';
+                        } else if (detail.includes('Error')) {
+                            color = '#721c24';
+                            bg = '#f8d7da';
+                        }
+                        html += `<div style="padding: 5px; margin: 2px 0; background: ${bg}; color: ${color}; border-radius: 3px;">${detail}</div>`;
+                    });
+                    html += '</div></details>';
+                }
+                
+                html += '<button onclick="saveOpenSections(); location.reload()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Refresh Page</button>';
+            } else {
+                html += `<div style="padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; color: #721c24;">
+                    <strong>✗ Import Failed</strong><br>
+                    ${data.message || 'Unknown error occurred'}
+                </div>`;
+            }
+            
+            html += '</div>';
+            contentDiv.innerHTML = html;
+            resultsDiv.style.display = 'block';
+            
+            // Clear file input
+            document.getElementById('bulkUploadFile').value = '';
+            document.getElementById('uploadFileName').textContent = '';
+        }
+    </script>
+
     </script>
 </body>
 </html>

@@ -31,6 +31,19 @@ import secrets
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+try:
+    from pysnmp.hlapi import (
+        getCmd, nextCmd, SnmpEngine, CommunityData, UdpTransportTarget,
+        ContextData, ObjectType, ObjectIdentity
+    )
+    SNMP_AVAILABLE = True
+except ImportError:
+    import shutil
+    SNMP_AVAILABLE = bool(shutil.which('snmpget') and shutil.which('snmpwalk'))
+    if SNMP_AVAILABLE:
+        logging.info("Using system snmpget/snmpwalk for SNMP monitoring")
+    else:
+        logging.warning("SNMP tools not available - SNMP monitoring disabled")
 
 # Setup logging
 logging.basicConfig(
@@ -61,8 +74,8 @@ running = True
 PING_INTERVAL = 10
 XLSX_FILE = "sm_ips.xlsx"
 RETENTION_DAYS = 7
-LATENCY_THRESHOLD = 800
-DEGRADED_LOSS_THRESHOLD = 10
+LATENCY_THRESHOLD = 200
+DEGRADED_LOSS_THRESHOLD = 5
 MAX_WORKERS = 50
 BATCH_SIZE = 20
 LAST_PRUNE = None
@@ -259,6 +272,9 @@ def init_users_db():
             conn.execute('ALTER TABLE users ADD COLUMN designation TEXT')
         if 'department' not in columns:
             conn.execute('ALTER TABLE users ADD COLUMN department TEXT')
+        if 'region_id' not in columns:
+            conn.execute('ALTER TABLE users ADD COLUMN region_id INTEGER')
+            logging.info("Added region_id column to users table")
         
         # Create default admin user if not exists
         cursor = conn.cursor()
@@ -285,11 +301,11 @@ def init_users_db():
         ]
         
         for username, email, password in demo_users:
-            cursor.execute("SELECT COUNT(*) FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT COUNT(*) FROM users WHERE username = ? OR email = ?", (username, email))
             if cursor.fetchone()[0] == 0:
                 password_hash = hash_password(password)
                 cursor.execute("""
-                    INSERT INTO users (username, email, password_hash, role, created_at)
+                    INSERT OR IGNORE INTO users (username, email, password_hash, role, created_at)
                     VALUES (?, ?, ?, 'user', ?)
                 """, (username, email, password_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                 logging.info(f"Created demo user: {username}")
@@ -416,6 +432,18 @@ def init_comments_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
         
+        # Add region_id column for role-based filtering (migration)
+        try:
+            conn.execute('ALTER TABLE device_tasks ADD COLUMN region_id INTEGER')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+            
+        # Add assigned_at column for tracking assignment time (migration)
+        try:
+            conn.execute('ALTER TABLE device_tasks ADD COLUMN assigned_at TEXT')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
         # Generate task_ids for existing tasks that don't have one
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM device_tasks WHERE task_id IS NULL ORDER BY id")
@@ -438,19 +466,300 @@ def init_comments_db():
 
 init_comments_db()
 
+def init_regions_locations_db():
+    """Initialize regions and locations database"""
+    try:
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False, timeout=30)
+        
+        # Create regions table
+        conn.execute('''CREATE TABLE IF NOT EXISTS regions 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         name TEXT UNIQUE NOT NULL,
+                         description TEXT,
+                         created_at TEXT NOT NULL,
+                         updated_at TEXT NOT NULL)''')
+        
+        # Create locations table (linked to regions)
+        conn.execute('''CREATE TABLE IF NOT EXISTS locations 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         name TEXT UNIQUE NOT NULL,
+                         region_id INTEGER,
+                         description TEXT,
+                         created_at TEXT NOT NULL,
+                         updated_at TEXT NOT NULL,
+                         FOREIGN KEY (region_id) REFERENCES regions (id) ON DELETE SET NULL)''')
+        
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_locations_region ON locations (region_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_locations_name ON locations (name)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_regions_name ON regions (name)')
+        
+        # Check if we need to migrate existing locations from Excel to database
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM regions")
+        region_count = cursor.fetchone()[0]
+        
+        if region_count == 0:
+            # Create default Region 7
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute("""
+                INSERT INTO regions (name, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, ('Region 7', 'Default region for existing locations', now, now))
+            
+            region_7_id = cursor.lastrowid
+            logging.info("Created default Region 7")
+        
+        # Always check and migrate locations from Excel if they don't exist in database
+        cursor.execute("SELECT COUNT(*) FROM locations")
+        location_count = cursor.fetchone()[0]
+        
+        if location_count == 0 and CACHED_DF is not None and 'Location' in CACHED_DF.columns:
+            # Get Region 7 ID (or create if doesn't exist)
+            cursor.execute("SELECT id FROM regions WHERE name = 'Region 7'")
+            region_result = cursor.fetchone()
+            
+            if not region_result:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute("""
+                    INSERT INTO regions (name, description, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, ('Region 7', 'Default region for existing locations', now, now))
+                region_7_id = cursor.lastrowid
+            else:
+                region_7_id = region_result[0]
+            
+            # Get unique locations from Excel file
+            unique_locations = CACHED_DF['Location'].dropna().unique()
+            migrated_count = 0
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            for location in unique_locations:
+                location = str(location).strip()
+                if location and location != 'Unknown':
+                    try:
+                        cursor.execute("""
+                            INSERT INTO locations (name, region_id, created_at, updated_at)
+                            VALUES (?, ?, ?, ?)
+                        """, (location, region_7_id, now, now))
+                        migrated_count += 1
+                    except sqlite3.IntegrityError:
+                        # Location already exists, skip
+                        pass
+            
+            if migrated_count > 0:
+                logging.info(f"Migrated {migrated_count} locations to Region 7")
+                logging.info(f"Locations: {', '.join([str(loc).strip() for loc in unique_locations if str(loc).strip() and str(loc).strip() != 'Unknown'])}")
+        
+        conn.commit()
+        conn.close()
+        logging.info("Regions and locations database initialized")
+    except Exception as e:
+        logging.error(f"Regions/locations database init failed: {str(e)}")
+
+def init_snmp_db():
+    """Initialize SNMP monitoring tables"""
+    try:
+        conn = sqlite3.connect('ping_history.db', check_same_thread=False, timeout=30)
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_devices
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         name TEXT NOT NULL,
+                         ip TEXT NOT NULL,
+                         community TEXT DEFAULT 'public',
+                         snmp_version TEXT DEFAULT '2c',
+                         device_type TEXT DEFAULT 'generic',
+                         location TEXT,
+                         region_id INTEGER,
+                         added_by TEXT,
+                         created_at TEXT NOT NULL,
+                         is_active INTEGER DEFAULT 1,
+                         description TEXT,
+                         model TEXT,
+                         port INTEGER DEFAULT 161,
+                         mac_address TEXT,
+                         firmware TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_metrics
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         timestamp TEXT NOT NULL,
+                         status TEXT DEFAULT 'unknown',
+                         uptime_seconds INTEGER,
+                         cpu_percent REAL,
+                         mem_percent REAL,
+                         interfaces_json TEXT,
+                         rx_bytes INTEGER,
+                         tx_bytes INTEGER,
+                         signal_dbm REAL,
+                         FOREIGN KEY (device_id) REFERENCES snmp_devices (id))''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_device ON snmp_metrics (device_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_snmp_metrics_ts ON snmp_metrics (timestamp)')
+        # Device hierarchy links table
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_device_links
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         parent_id INTEGER NOT NULL,
+                         child_id INTEGER NOT NULL,
+                         link_type TEXT DEFAULT 'ap',
+                         created_at TEXT NOT NULL,
+                         FOREIGN KEY (parent_id) REFERENCES snmp_devices (id),
+                         FOREIGN KEY (child_id) REFERENCES snmp_devices (id),
+                         UNIQUE(parent_id, child_id))''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_links_parent ON snmp_device_links (parent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_links_child ON snmp_device_links (child_id)')
+        # Switch ports table
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_switch_ports
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         port_index INTEGER NOT NULL,
+                         if_descr TEXT,
+                         custom_label TEXT,
+                         ap_ip TEXT,
+                         created_at TEXT NOT NULL,
+                         updated_at TEXT NOT NULL,
+                         FOREIGN KEY (device_id) REFERENCES snmp_devices (id),
+                         UNIQUE(device_id, port_index))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS snmp_port_metrics
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         device_id INTEGER NOT NULL,
+                         port_index INTEGER NOT NULL,
+                         timestamp TEXT NOT NULL,
+                         oper_status INTEGER,
+                         rx_bytes INTEGER,
+                         tx_bytes INTEGER,
+                         rx_mbps REAL,
+                         tx_mbps REAL)''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_port_metrics_dev ON snmp_port_metrics (device_id, port_index)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_port_metrics_ts ON snmp_port_metrics (timestamp)')
+        # Migrate: add new columns if missing
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(snmp_devices)")
+        existing = [r[1] for r in cursor.fetchall()]
+        migrations = [
+            ('description', 'TEXT'),
+            ('model', 'TEXT'),
+            ('port', 'INTEGER DEFAULT 161'),
+            ('mac_address', 'TEXT'),
+            ('firmware', 'TEXT'),
+        ]
+        for col, coltype in migrations:
+            if col not in existing:
+                conn.execute(f'ALTER TABLE snmp_devices ADD COLUMN {col} {coltype}')
+        conn.commit()
+        conn.close()
+        logging.info("SNMP database initialized")
+    except Exception as e:
+        logging.error(f"SNMP database init failed: {str(e)}")
+
+init_snmp_db()
+init_regions_locations_db()
+
+def migrate_locations_from_excel():
+    """Migrate locations from Excel to database if not already done"""
+    try:
+        if CACHED_DF is None or 'Location' not in CACHED_DF.columns:
+            return
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get Region 7 (or create if doesn't exist)
+            cursor.execute("SELECT id FROM regions WHERE name = 'Region 7'")
+            region_result = cursor.fetchone()
+            
+            if not region_result:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute("""
+                    INSERT INTO regions (name, description, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, ('Region 7', 'Default region for existing locations', now, now))
+                region_7_id = cursor.lastrowid
+                logging.info("Created Region 7 for migration")
+            else:
+                region_7_id = region_result[0]
+            
+            # Get existing locations in database
+            cursor.execute("SELECT name FROM locations")
+            existing_locations = set(row[0] for row in cursor.fetchall())
+            
+            # Get unique locations from Excel
+            unique_locations = CACHED_DF['Location'].dropna().unique()
+            migrated_count = 0
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            for location in unique_locations:
+                location = str(location).strip()
+                if location and location != 'Unknown' and location not in existing_locations:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO locations (name, region_id, created_at, updated_at)
+                            VALUES (?, ?, ?, ?)
+                        """, (location, region_7_id, now, now))
+                        migrated_count += 1
+                    except sqlite3.IntegrityError:
+                        # Location already exists, skip
+                        pass
+            
+            if migrated_count > 0:
+                conn.commit()
+                logging.info(f"Migrated {migrated_count} new locations from Excel to Region 7")
+                
+    except Exception as e:
+        logging.error(f"Location migration error: {str(e)}")
+
 # Authentication helper functions
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
+    from flask import request, jsonify
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            if request.is_json or request.path.startswith('/api') or request.path.startswith('/get_'):
+                return jsonify({'error': 'Authentication required'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
 def admin_required(f):
-    """Decorator to require admin role for routes"""
+    """Decorator to require admin role (superadmin or regional_admin) for routes"""
+    from functools import wraps
+    from flask import request, jsonify
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.is_json:
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login'))
+        
+        user = get_current_user()
+        if not user or user['role'] not in ['admin', 'superadmin', 'regional_admin']:
+            if request.is_json:
+                return jsonify({'error': 'Admin access required'}), 403
+            flash('Admin access required', 'error')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def superadmin_required(f):
+    """Decorator to require superadmin role for routes"""
+    from functools import wraps
+    from flask import request, jsonify
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.is_json:
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login'))
+        
+        user = get_current_user()
+        if not user or user['role'] != 'superadmin':
+            if request.is_json:
+                return jsonify({'error': 'Superadmin access required'}), 403
+            flash('Superadmin access required', 'error')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def regional_admin_or_super_required(f):
+    """Decorator to require regional_admin or superadmin role for routes"""
     from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -458,7 +767,7 @@ def admin_required(f):
             return redirect(url_for('login'))
         
         user = get_current_user()
-        if not user or user['role'] != 'admin':
+        if not user or user['role'] not in ['superadmin', 'regional_admin']:
             flash('Admin access required', 'error')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
@@ -473,7 +782,7 @@ def get_current_user():
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, username, email, role, is_active, last_login, contact_number, designation, department
+                SELECT id, username, email, role, is_active, last_login, contact_number, designation, department, region_id
                 FROM users WHERE id = ?
             """, (session['user_id'],))
             user_data = cursor.fetchone()
@@ -488,7 +797,8 @@ def get_current_user():
                     'last_login': user_data[5],
                     'contact_number': user_data[6],
                     'designation': user_data[7],
-                    'department': user_data[8]
+                    'department': user_data[8],
+                    'region_id': user_data[9]
                 }
     except Exception as e:
         logging.error(f"Error getting current user: {str(e)}")
@@ -521,8 +831,10 @@ def get_all_users():
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, username, email, role, is_active, created_at, last_login
-                FROM users ORDER BY created_at DESC
+                SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at, u.last_login, u.region_id, r.name
+                FROM users u
+                LEFT JOIN regions r ON u.region_id = r.id
+                ORDER BY u.created_at DESC
             """)
             users_data = cursor.fetchall()
             
@@ -535,7 +847,9 @@ def get_all_users():
                     'role': user_data[3],
                     'is_active': user_data[4],
                     'created_at': user_data[5],
-                    'last_login': user_data[6]
+                    'last_login': user_data[6],
+                    'region_id': user_data[7],
+                    'region_name': user_data[8]
                 })
             return users
     except Exception as e:
@@ -678,7 +992,7 @@ def login():
                     next_page = request.args.get('next')
                     if next_page:
                         return redirect(next_page)
-                    elif user_data[4] == 'admin':
+                    elif user_data[4] in ['admin', 'superadmin', 'regional_admin']:
                         return redirect(url_for('admin_dashboard'))
                     else:
                         return redirect(url_for('dashboard'))
@@ -697,12 +1011,17 @@ def signup():
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '')
         confirm_password = request.form.get('confirm_password', '')
+        region_id = request.form.get('region_id', '').strip()
         
-        logging.info(f"Signup attempt for username: {username}, email: {email}")
+        logging.info(f"Signup attempt for username: {username}, email: {email}, region_id: {region_id}")
         
         # Validation
         if not username or not email or not password:
             flash('All fields are required', 'error')
+            return render_template('signup.html')
+        
+        if not region_id:
+            flash('Please select a region', 'error')
             return render_template('signup.html')
         
         if len(username) < 3:
@@ -733,15 +1052,21 @@ def signup():
                     flash('Username or email already exists', 'error')
                     return render_template('signup.html')
                 
-                # Create new user
+                # Verify region exists
+                cursor.execute("SELECT id FROM regions WHERE id = ?", (region_id,))
+                if not cursor.fetchone():
+                    flash('Invalid region selected', 'error')
+                    return render_template('signup.html')
+                
+                # Create new user with region
                 password_hash = hash_password(password)
                 cursor.execute("""
-                    INSERT INTO users (username, email, password_hash, role, created_at)
-                    VALUES (?, ?, ?, 'user', ?)
-                """, (username, email, password_hash, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    INSERT INTO users (username, email, password_hash, role, region_id, created_at)
+                    VALUES (?, ?, ?, 'user', ?, ?)
+                """, (username, email, password_hash, int(region_id), datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                 conn.commit()
                 
-                logging.info(f"User {username} created successfully, redirecting to login")
+                logging.info(f"User {username} created successfully with region {region_id}, redirecting to login")
                 flash('Account created successfully! Please log in.', 'success')
                 return redirect(url_for('login'))
         except Exception as e:
@@ -875,10 +1200,22 @@ def logout():
 def profile():
     user = get_current_user()
     
-    # Get user activity logs
+    # Get user's region information
     try:
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
+            
+            # Get region name if user has a region assigned
+            if user.get('region_id'):
+                cursor.execute("""
+                    SELECT name FROM regions WHERE id = ?
+                """, (user['region_id'],))
+                region_row = cursor.fetchone()
+                user['region_name'] = region_row[0] if region_row else None
+            else:
+                user['region_name'] = 'All Regions' if user['role'] in ['admin', 'superadmin'] else 'Not Assigned'
+            
+            # Get user activity logs
             cursor.execute("""
                 SELECT activity_type, activity_description, ip_address, timestamp
                 FROM user_activity_logs
@@ -898,8 +1235,9 @@ def profile():
             
             user['activities'] = activities
     except Exception as e:
-        logging.error(f"Error loading activities: {str(e)}")
+        logging.error(f"Error loading profile data: {str(e)}")
         user['activities'] = []
+        user['region_name'] = 'Error loading region'
     
     return render_template('profile.html', user=user)
 
@@ -1076,12 +1414,12 @@ def ping_ip(ip, timeout=0.2):
     try:
         if ip == "192.168.138.141" and os.getenv("TEST_MODE"):
             logging.debug(f"Simulating {ip}: Reachable")
-            return "Reachable", 33.25
+            return "Reachable", 33.25, None
 
         cached = status_cache.get(ip)
         if cached and datetime.now() - cached["time"] < timedelta(seconds=PING_INTERVAL * 5):
             logging.debug(f"Using cached status for {ip}: {cached['status']}")
-            return cached["status"], cached["latency"]
+            return cached["status"], cached["latency"], cached.get("issue_type")
         
         cmd = ['ping', '-c', '2', '-W', str(timeout), ip]
         logging.debug(f"Pinging {ip}")
@@ -1090,8 +1428,8 @@ def ping_ip(ip, timeout=0.2):
         stdout = result.stdout.lower()
         if result.returncode != 0 or "100% packet loss" in stdout or "destination host unreachable" in stdout:
             logging.warning(f"{ip} Down")
-            status_cache[ip] = {"status": "Down", "latency": None, "time": datetime.now()}
-            return "Down", None
+            status_cache[ip] = {"status": "Down", "latency": None, "issue_type": None, "time": datetime.now()}
+            return "Down", None, None
         
         loss_percent = 100
         latency = None
@@ -1101,22 +1439,28 @@ def ping_ip(ip, timeout=0.2):
             if "rtt min/avg/max/mdev" in line:
                 latency = float(line.split('=')[1].split('/')[1])
         
-        if loss_percent >= DEGRADED_LOSS_THRESHOLD or (latency and latency > LATENCY_THRESHOLD):
-            status = "Degraded"
-        else:
-            status = "Reachable"
+        status = "Reachable"
+        issue_type = None
         
-        status_cache[ip] = {"status": status, "latency": latency, "time": datetime.now()}
-        logging.debug(f"{ip} {status}, latency: {latency or 'N/A'}")
-        return status, latency
+        # Determine status and issue type
+        if loss_percent >= DEGRADED_LOSS_THRESHOLD:
+            status = "Degraded"
+            issue_type = "packet_loss"
+        elif latency and latency > LATENCY_THRESHOLD:
+            status = "Degraded"
+            issue_type = "high_latency"
+        
+        status_cache[ip] = {"status": status, "latency": latency, "issue_type": issue_type, "time": datetime.now()}
+        logging.debug(f"{ip} {status}, latency: {latency or 'N/A'}, issue: {issue_type or 'none'}")
+        return status, latency, issue_type
     except subprocess.TimeoutExpired:
         logging.error(f"Ping {ip} timed out")
-        status_cache[ip] = {"status": "Down", "latency": None, "time": datetime.now()}
-        return "Down", None
+        status_cache[ip] = {"status": "Down", "latency": None, "issue_type": None, "time": datetime.now()}
+        return "Down", None, None
     except Exception as e:
         logging.error(f"Ping {ip} error: {str(e)}")
-        status_cache[ip] = {"status": "Down", "latency": None, "time": datetime.now()}
-        return "Down", None
+        status_cache[ip] = {"status": "Down", "latency": None, "issue_type": None, "time": datetime.now()}
+        return "Down", None, None
 
 def ping_all_ips(ips):
     start = time.time()
@@ -1124,7 +1468,13 @@ def ping_all_ips(ips):
         batches = [ips[i:i + BATCH_SIZE] for i in range(0, len(ips), BATCH_SIZE)]
         ping_results = []
         for batch in batches:
-            ping_results.extend(executor.map(ping_ip, batch))
+            try:
+                batch_results = list(executor.map(ping_ip, batch, timeout=5))
+                ping_results.extend(batch_results)
+            except Exception as e:
+                logging.error(f"Error in batch processing: {str(e)}")
+                # Add default results for failed batch
+                ping_results.extend([("Down", None, None) for _ in batch])
     duration = time.time() - start
     logging.info(f"Pinging {len(ips)} IPs took {duration:.2f}s")
     return ping_results
@@ -1266,6 +1616,9 @@ def update_ping_status():
                     CACHED_DF = pd.read_excel(XLSX_FILE, engine='openpyxl')
                     LAST_XLSX_LOAD = now
                     logging.info(f"Loaded XLSX with {len(CACHED_DF)} rows")
+                    
+                    # Migrate locations from Excel to database
+                    migrate_locations_from_excel()
                 except Exception as e:
                     logging.error(f"XLSX load error: {str(e)}")
                     CACHED_DF = pd.DataFrame(columns=['AP Name', 'AP IP', 'CID', 'SM IP', 'Device Name', 'Location'])
@@ -1345,10 +1698,10 @@ def update_ping_status():
             })
 
             for sm_ip in ips:
-                status, latency = ip_to_result.get(sm_ip, ("Unknown", None))
+                status, latency, issue_type = ip_to_result.get(sm_ip, ("Unknown", None, None))
                 if status in ['Error', 'Timeout']:
                     continue
-                logging.debug(f"Ping result for {sm_ip}: {status}, latency: {latency or 'N/A'}")
+                logging.debug(f"Ping result for {sm_ip}: {status}, latency: {latency or 'N/A'}, issue: {issue_type or 'none'}")
                 
                 last_status = previous_status_cache.get(sm_ip, {}).get("status")
                 if last_status is None:
@@ -1379,7 +1732,8 @@ def update_ping_status():
                     "Location": info['location'],
                     "Status": status,
                     "Latency": f"{latency:.2f} ms" if latency is not None else "N/A",
-                    "Downtime Since": downtime_since
+                    "Downtime Since": downtime_since,
+                    "Issue Type": issue_type
                 }
                 new_results.append(result)
                 pop_counts[info['location']][status] += 1
@@ -1412,7 +1766,8 @@ def update_ping_status():
                     "uptime_since": uptime_since,
                     "latency": latency,
                     "long_term": is_long_term,
-                    "high_latency": latency is not None and latency > LATENCY_THRESHOLD
+                    "high_latency": latency is not None and latency > LATENCY_THRESHOLD,
+                    "issue_type": issue_type
                 }
                 should_generate = False
                 if status in ["Down", "Degraded"] or is_long_term:
@@ -1557,24 +1912,281 @@ def handle_refresh_alerts():
         logging.error(f"Refresh alerts error: {str(e)}")
         socketio.emit('refresh_alerts', {'error': str(e)})
 
+# Location Uptime/Downtime Monitor Routes
+@app.route('/location_uptime_monitor')
+@login_required
+def location_uptime_monitor():
+    """Display location uptime/downtime monitor page"""
+    user = get_current_user()
+    return render_template('location_uptime_monitor.html', user=user)
+
+@app.route('/api/location_uptime_events')
+@login_required
+def location_uptime_events():
+    """Get uptime/downtime events for a specific location"""
+    try:
+        location = request.args.get('location', '').strip()
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        
+        if not location or not start_date or not end_date:
+            return jsonify({'error': 'Missing required parameters'}), 400
+        
+        # Get all IPs in this location from Excel
+        location_ips = {}
+        with results_lock:
+            if CACHED_DF is not None and 'Location' in CACHED_DF.columns:
+                # Filter by location, handling whitespace
+                location_data = CACHED_DF[CACHED_DF['Location'].astype(str).str.strip() == location]
+                for _, row in location_data.iterrows():
+                    ip = str(row.get('SM IP', '')).strip()
+                    if ip and ip != 'nan':
+                        location_ips[ip] = {
+                            'device_name': str(row.get('Device Name', 'N/A')),
+                            'location': str(row.get('Location', 'N/A')).strip(),
+                            'cid': str(row.get('CID', 'N/A'))
+                        }
+        
+        if not location_ips:
+            return jsonify({'error': f'No IPs found for location: {location}'}), 404
+        
+        # Get events from history table
+        try:
+            start_datetime = f"{start_date} 00:00:00"
+            end_datetime = f"{end_date} 23:59:59"
+            
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT sm_ip, status, timestamp
+                    FROM history
+                    WHERE sm_ip IN ({})
+                    AND timestamp >= ? AND timestamp <= ?
+                    ORDER BY sm_ip, timestamp
+                """.format(','.join(['?'] * len(location_ips))), 
+                list(location_ips.keys()) + [start_datetime, end_datetime])
+                
+                records = cursor.fetchall()
+        except Exception as e:
+            logging.error(f"Database error: {str(e)}")
+            return jsonify({'error': f'Database error: {str(e)}'}), 500
+        
+        # Process events
+        ip_events = {}
+        for ip in location_ips:
+            ip_events[ip] = {
+                'device_name': location_ips[ip]['device_name'],
+                'down_events': [],
+                'degraded_events': [],
+                'total_downtime_seconds': 0,
+                'total_degraded_seconds': 0,
+                'uptime_percent': 100.0,
+                'last_event_type': 'UP',
+                'last_event_time': None
+            }
+        
+        # Group records by IP and detect events
+        ip_records = {}
+        for sm_ip, status, timestamp in records:
+            if sm_ip not in ip_records:
+                ip_records[sm_ip] = []
+            ip_records[sm_ip].append((status, timestamp))
+        
+        # Detect down and degraded events
+        for ip, records_list in ip_records.items():
+            if ip not in ip_events:
+                continue
+            
+            current_status = None
+            event_start = None
+            
+            for status, timestamp in records_list:
+                if status == 'Down' and current_status != 'Down':
+                    event_start = timestamp
+                    current_status = 'Down'
+                elif status != 'Down' and current_status == 'Down':
+                    if event_start:
+                        start_time = datetime.strptime(event_start, '%Y-%m-%d %H:%M:%S')
+                        end_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                        duration = (end_time - start_time).total_seconds()
+                        ip_events[ip]['down_events'].append({
+                            'start': event_start,
+                            'end': timestamp,
+                            'duration_seconds': int(duration)
+                        })
+                        ip_events[ip]['total_downtime_seconds'] += int(duration)
+                    current_status = None
+                
+                if status == 'Degraded' and current_status != 'Degraded':
+                    event_start = timestamp
+                    current_status = 'Degraded'
+                elif status != 'Degraded' and current_status == 'Degraded':
+                    if event_start:
+                        start_time = datetime.strptime(event_start, '%Y-%m-%d %H:%M:%S')
+                        end_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                        duration = (end_time - start_time).total_seconds()
+                        ip_events[ip]['degraded_events'].append({
+                            'start': event_start,
+                            'end': timestamp,
+                            'duration_seconds': int(duration)
+                        })
+                        ip_events[ip]['total_degraded_seconds'] += int(duration)
+                    current_status = None
+                
+                ip_events[ip]['last_event_type'] = status
+                ip_events[ip]['last_event_time'] = timestamp
+        
+        # Calculate uptime percentage (based on actual time range)
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            total_seconds = (end_dt - start_dt).total_seconds() + 86400  # +1 day to include end date
+        except:
+            total_seconds = 7 * 24 * 60 * 60  # 7 days default
+        
+        for ip in ip_events:
+            downtime = ip_events[ip]['total_downtime_seconds']
+            uptime_percent = ((total_seconds - downtime) / total_seconds) * 100 if total_seconds > 0 else 100
+            ip_events[ip]['uptime_percent'] = max(0, min(100, uptime_percent))
+        
+        # Prepare response
+        events_list = []
+        total_down_events = 0
+        total_degraded_events = 0
+        total_uptime = 0
+        
+        for ip, data in ip_events.items():
+            events_list.append({
+                'ip': ip,
+                'device_name': data['device_name'],
+                'down_events': data['down_events'],
+                'degraded_events': data['degraded_events'],
+                'total_downtime_seconds': data['total_downtime_seconds'],
+                'uptime_percent': data['uptime_percent'],
+                'last_event_type': data['last_event_type'],
+                'last_event_time': data['last_event_time']
+            })
+            total_down_events += len(data['down_events'])
+            total_degraded_events += len(data['degraded_events'])
+            total_uptime += data['uptime_percent']
+        
+        avg_uptime = total_uptime / len(ip_events) if ip_events else 0
+        
+        return jsonify({
+            'events': events_list,
+            'stats': {
+                'total_ips': len(location_ips),
+                'total_down_events': total_down_events,
+                'total_degraded_events': total_degraded_events,
+                'avg_uptime_percent': avg_uptime
+            }
+        })
+    
+    except Exception as e:
+        logging.error(f"Location uptime events error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/location_uptime_events_export')
+@login_required
+def location_uptime_events_export():
+    """Export location uptime/downtime events to CSV"""
+    try:
+        location = request.args.get('location', '')
+        start_date = request.args.get('start_date', '')
+        end_date = request.args.get('end_date', '')
+        format_type = request.args.get('format', 'csv')
+        
+        # Get data using the same logic as location_uptime_events
+        response = location_uptime_events()
+        data = response.get_json()
+        
+        if 'error' in data:
+            return response
+        
+        # Create CSV
+        import csv
+        from io import StringIO
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['IP Address', 'Device Name', 'Down Events', 'Degraded Events', 
+                        'Total Downtime', 'Uptime %', 'Last Event', 'Last Event Time'])
+        
+        # Write data
+        for event in data['events']:
+            writer.writerow([
+                event['ip'],
+                event['device_name'],
+                len(event['down_events']),
+                len(event['degraded_events']),
+                f"{event['total_downtime_seconds']}s",
+                f"{event['uptime_percent']:.2f}%",
+                event['last_event_type'],
+                event['last_event_time']
+            ])
+        
+        # Return CSV
+        output.seek(0)
+        return send_file(
+            StringIO(output.getvalue()),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f"location_uptime_{location}_{start_date}.csv"
+        )
+    
+    except Exception as e:
+        logging.error(f"Export error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 # Admin Routes (Legacy - Remove old admin login system)
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
     try:
         df = pd.read_excel(XLSX_FILE, engine='openpyxl')
-        locations = sorted(set(df['Location'].dropna().astype(str)))
-        records = df.to_dict('records')
         user = get_current_user()
         
-        # Get all users for user management
-        users = get_all_users()
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Regional admin: filter by their region
+            if user['role'] == 'regional_admin' and user['region_id']:
+                # Get locations in their region
+                cursor.execute("""
+                    SELECT name FROM locations
+                    WHERE region_id = ?
+                    ORDER BY name
+                """, (user['region_id'],))
+                locations = [row[0] for row in cursor.fetchall()]
+                
+                # Filter records to only show devices in their region's locations
+                if locations:
+                    records = df[df['Location'].isin(locations)].to_dict('records')
+                else:
+                    records = []
+            else:
+                # Superadmin: see all locations and records
+                cursor.execute("""
+                    SELECT name FROM locations
+                    ORDER BY name
+                """)
+                locations = [row[0] for row in cursor.fetchall()]
+                records = df.to_dict('records')
+            
+            # Fallback to Excel if no locations in database
+            if not locations:
+                locations = sorted(set(df['Location'].dropna().astype(str)))
+        
+        # Get all users for user management (superadmin only)
+        users = get_all_users() if user['role'] == 'superadmin' else []
         
         return render_template('admin.html', records=records, locations=locations, user=user, users=users)
     except Exception as e:
         logging.error(f"Admin dashboard error: {str(e)}")
         user = get_current_user()
-        users = get_all_users()
+        users = get_all_users() if user and user['role'] == 'superadmin' else []
         return render_template('admin.html', records=[], locations=[], error=str(e), user=user, users=users)
 
 @app.route('/admin/add_entry', methods=['POST'])
@@ -1593,6 +2205,17 @@ def admin_add_entry():
         location = data.get('location')
         if not location:
             return jsonify({'error': 'Location is required'}), 400
+        
+        # Regional admin: verify location is in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT region_id FROM locations WHERE name = ?", (location,))
+                loc_data = cursor.fetchone()
+                if not loc_data or loc_data[0] != user['region_id']:
+                    return jsonify({'error': 'You can only add devices to locations in your region'}), 403
+        
         with results_lock:
             if CACHED_DF is None:
                 return jsonify({'error': 'Dataframe not initialized'}), 500
@@ -1610,6 +2233,7 @@ def admin_add_entry():
             CACHED_DF.to_excel(XLSX_FILE, index=False, engine='openpyxl')
             LAST_XLSX_LOAD = None
             logging.info(f"Added new entry for SM IP {sm_ip}")
+            log_user_activity(user['id'], user['username'], 'entry_add', f"Added device {sm_ip} ({data.get('org_name','N/A')}) at {location}")
             return jsonify({'success': 'Entry added successfully'})
     except Exception as e:
         logging.error(f"Add entry error: {str(e)}")
@@ -1637,6 +2261,25 @@ def admin_update_entry():
         location = data.get('location')
         if not location:
             return jsonify({'error': 'Location is required'}), 400
+        
+        # Regional admin: verify both old and new locations are in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                # Check old location
+                if CACHED_DF is not None and old_sm_ip in CACHED_DF['SM IP'].values:
+                    old_location = CACHED_DF.loc[CACHED_DF['SM IP'] == old_sm_ip, 'Location'].iloc[0]
+                    cursor.execute("SELECT region_id FROM locations WHERE name = ?", (old_location,))
+                    old_loc_data = cursor.fetchone()
+                    if not old_loc_data or old_loc_data[0] != user['region_id']:
+                        return jsonify({'error': 'You can only edit devices in your region'}), 403
+                
+                # Check new location
+                cursor.execute("SELECT region_id FROM locations WHERE name = ?", (location,))
+                new_loc_data = cursor.fetchone()
+                if not new_loc_data or new_loc_data[0] != user['region_id']:
+                    return jsonify({'error': 'You can only move devices to locations in your region'}), 403
         
         with results_lock:
             if CACHED_DF is None:
@@ -1672,8 +2315,10 @@ def admin_update_entry():
             
             if old_sm_ip != new_sm_ip:
                 logging.info(f"Updated entry: SM IP changed from {old_sm_ip} to {new_sm_ip}")
+                log_user_activity(user['id'], user['username'], 'entry_update', f"Updated device IP from {old_sm_ip} to {new_sm_ip} at {location}")
             else:
                 logging.info(f"Updated entry for SM IP {new_sm_ip}")
+                log_user_activity(user['id'], user['username'], 'entry_update', f"Updated device {new_sm_ip} ({data.get('org_name','N/A')}) at {location}")
             
             return jsonify({'success': 'Entry updated successfully', 'new_sm_ip': new_sm_ip})
     except Exception as e:
@@ -1689,6 +2334,19 @@ def admin_delete_entry():
         sm_ip = data.get('sm_ip')
         if not sm_ip or not validate_ip(sm_ip):
             return jsonify({'error': 'Invalid or missing SM IP'}), 400
+        
+        # Regional admin: verify device location is in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                if CACHED_DF is not None and sm_ip in CACHED_DF['SM IP'].values:
+                    device_location = CACHED_DF.loc[CACHED_DF['SM IP'] == sm_ip, 'Location'].iloc[0]
+                    cursor.execute("SELECT region_id FROM locations WHERE name = ?", (device_location,))
+                    loc_data = cursor.fetchone()
+                    if not loc_data or loc_data[0] != user['region_id']:
+                        return jsonify({'error': 'You can only delete devices in your region'}), 403
+        
         with results_lock:
             if CACHED_DF is None:
                 return jsonify({'error': 'Dataframe not initialized'}), 500
@@ -1698,10 +2356,184 @@ def admin_delete_entry():
             CACHED_DF.to_excel(XLSX_FILE, index=False, engine='openpyxl')
             LAST_XLSX_LOAD = None
             logging.info(f"Deleted entry for SM IP {sm_ip}")
+            log_user_activity(user['id'], user['username'], 'entry_delete', f"Deleted device {sm_ip}")
             return jsonify({'success': 'Entry deleted successfully'})
     except Exception as e:
         logging.error(f"Delete entry error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/download_template')
+@admin_required
+def download_template():
+    """Download Excel template for bulk import"""
+    try:
+        # Create a new DataFrame with template structure
+        template_df = pd.DataFrame(columns=[
+            'AP Name', 'AP IP', 'CID', 'SM IP', 'Device Name', 'Location'
+        ])
+        
+        # Add sample row with instructions
+        template_df.loc[0] = [
+            'Example AP',
+            '192.168.1.1',
+            'CID-001',
+            '192.168.1.100',
+            'Example Device',
+            'Example Location'
+        ]
+        
+        # Create temporary file
+        temp_file = 'temp_template.xlsx'
+        template_df.to_excel(temp_file, index=False, engine='openpyxl')
+        
+        # Send file
+        return send_file(
+            temp_file,
+            as_attachment=True,
+            download_name='device_import_template.xlsx',
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logging.error(f"Template download error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/bulk_import', methods=['POST'])
+@admin_required
+def bulk_import():
+    """Bulk import devices from Excel file"""
+    global CACHED_DF, LAST_XLSX_LOAD
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'}), 400
+        
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({'success': False, 'message': 'Invalid file format. Please upload .xlsx or .xls file'}), 400
+        
+        # Read uploaded Excel file
+        upload_df = pd.read_excel(file, engine='openpyxl')
+        
+        # Validate required columns
+        required_columns = ['SM IP', 'Location']
+        missing_columns = [col for col in required_columns if col not in upload_df.columns]
+        if missing_columns:
+            return jsonify({
+                'success': False,
+                'message': f'Missing required columns: {", ".join(missing_columns)}'
+            }), 400
+        
+        # Initialize counters and tracking
+        added = 0
+        skipped = 0
+        errors = 0
+        details = []
+        new_locations = []
+        locations_created = 0
+        
+        # Get existing locations
+        with sqlite3.connect('ping_history.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM locations")
+            existing_locations = set(row[0] for row in cursor.fetchall())
+        
+        with results_lock:
+            if CACHED_DF is None:
+                return jsonify({'success': False, 'message': 'System not initialized'}), 500
+            
+            existing_ips = set(CACHED_DF['SM IP'].values)
+            
+            # Process each row
+            for idx, row in upload_df.iterrows():
+                try:
+                    # Get values
+                    sm_ip = str(row.get('SM IP', '')).strip()
+                    location = str(row.get('Location', '')).strip()
+                    
+                    # Skip empty rows
+                    if not sm_ip or sm_ip == 'nan':
+                        continue
+                    
+                    # Validate required fields
+                    if not location or location == 'nan':
+                        errors += 1
+                        details.append(f"Row {idx + 2}: Error - Location is required for {sm_ip}")
+                        continue
+                    
+                    # Validate IP address
+                    if not validate_ip(sm_ip):
+                        errors += 1
+                        details.append(f"Row {idx + 2}: Error - Invalid IP address: {sm_ip}")
+                        continue
+                    
+                    # Check for duplicates
+                    if sm_ip in existing_ips:
+                        skipped += 1
+                        details.append(f"Row {idx + 2}: Skipped - Duplicate SM IP: {sm_ip}")
+                        continue
+                    
+                    # Create location if it doesn't exist
+                    if location not in existing_locations:
+                        with sqlite3.connect('ping_history.db') as conn:
+                            cursor = conn.cursor()
+                            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            cursor.execute("""
+                                INSERT INTO locations (name, region_id, description, created_at, updated_at)
+                                VALUES (?, NULL, ?, ?, ?)
+                            """, (location, f'Auto-created from bulk import', now, now))
+                            conn.commit()
+                        
+                        existing_locations.add(location)
+                        new_locations.append(location)
+                        locations_created += 1
+                        details.append(f"Created new location: {location}")
+                    
+                    # Prepare entry data
+                    new_entry = {
+                        'AP Name': str(row.get('AP Name', 'N/A')),
+                        'AP IP': str(row.get('AP IP', 'N/A')),
+                        'CID': str(row.get('CID', 'N/A')),
+                        'SM IP': sm_ip,
+                        'Device Name': str(row.get('Device Name', 'N/A')),
+                        'Location': location
+                    }
+                    
+                    # Add to dataframe
+                    CACHED_DF = pd.concat([CACHED_DF, pd.DataFrame([new_entry])], ignore_index=True)
+                    existing_ips.add(sm_ip)
+                    added += 1
+                    details.append(f"Row {idx + 2}: Added - {sm_ip} ({location})")
+                    
+                except Exception as e:
+                    errors += 1
+                    details.append(f"Row {idx + 2}: Error - {str(e)}")
+            
+            # Save to Excel if any entries were added
+            if added > 0:
+                CACHED_DF.to_excel(XLSX_FILE, index=False, engine='openpyxl')
+                LAST_XLSX_LOAD = None
+                logging.info(f"Bulk import: Added {added}, Skipped {skipped}, Errors {errors}")
+        
+        return jsonify({
+            'success': True,
+            'added': added,
+            'skipped': skipped,
+            'errors': errors,
+            'locations_created': locations_created,
+            'new_locations': new_locations,
+            'details': details
+        })
+        
+    except Exception as e:
+        logging.error(f"Bulk import error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Import failed: {str(e)}'
+        }), 500
 
 @app.route('/admin/location_downtime')
 @admin_required
@@ -2188,7 +3020,7 @@ def export_log():
 
 
 @app.route('/export_ip_history')
-@admin_required
+@login_required
 def export_ip_history():
     try:
         ip_input = request.args.get('ip', '')
@@ -2351,7 +3183,7 @@ def export_ip_history():
 
 
 @app.route('/get_logs')
-@admin_required
+@login_required
 def get_logs():
     try:
         ip_input = request.args.get('ip', '')
@@ -2414,7 +3246,8 @@ def get_logs():
                         'ap_name': str(row.get('AP Name', 'N/A')),
                         'ap_ip': str(row.get('AP IP', 'N/A')),
                         'ap_mac': str(row.get('AP MAC Address', 'N/A')),
-                        'sm_mac': str(row.get('SM MAC Address', 'N/A'))
+                        'sm_mac': str(row.get('SM MAC Address', 'N/A')),
+                        'cid': str(row.get('CID', 'N/A'))
                     } for row in CACHED_DF.to_dict('records') if pd.notna(row.get('SM IP'))
                 }
         for timestamp, sm_ip, status, latency in records:
@@ -2432,7 +3265,8 @@ def get_logs():
                     'ap_name': info.get('ap_name', 'N/A'),
                     'ap_ip': info.get('ap_ip', 'N/A'),
                     'ap_mac': info.get('ap_mac', 'N/A'),
-                    'sm_mac': info.get('sm_mac', 'N/A')
+                    'sm_mac': info.get('sm_mac', 'N/A'),
+                    'cid': info.get('cid', 'N/A')
                 }
             })
         HISTORY_CACHE[cache_key] = {'data': logs, 'time': datetime.now()}
@@ -2816,7 +3650,7 @@ def export_health_pdf():
 def mobile_dashboard():
     """Mobile-optimized dashboard"""
     user = get_current_user()
-    users = get_all_users() if user and user['role'] == 'admin' else []
+    users = get_all_users() if user and user['role'] in ['admin', 'superadmin', 'regional_admin'] else []
     return render_template('mobile.html', user=user, users=users)
 
 @app.route('/sla')
@@ -2824,7 +3658,426 @@ def mobile_dashboard():
 def sla_dashboard():
     """SLA monitoring dashboard"""
     user = get_current_user()
-    return render_template('sla.html', user=user)
+    
+    # Get user's region information for filtering
+    user_region_id = user.get('region_id')
+    user_role = user.get('role')
+    
+    # Pass region info to template
+    return render_template('sla.html', user=user, user_region_id=user_region_id, user_role=user_role)
+
+# Region and Location Management API Routes
+@app.route('/api/regions', methods=['GET'])
+def get_regions():
+    """Get all regions - Public endpoint for signup page"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, description, created_at, updated_at
+                FROM regions
+                ORDER BY name
+            """)
+            regions = cursor.fetchall()
+            
+            regions_list = []
+            for region in regions:
+                regions_list.append({
+                    'id': region[0],
+                    'name': region[1],
+                    'description': region[2],
+                    'created_at': region[3],
+                    'updated_at': region[4]
+                })
+            
+            return jsonify({'success': True, 'regions': regions_list})
+            
+    except Exception as e:
+        logging.error(f"Get regions error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/regions', methods=['POST'])
+@superadmin_required
+def create_region():
+    """Create a new region"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'error': 'Region name is required'}), 400
+        
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if region already exists
+            cursor.execute("SELECT id FROM regions WHERE name = ?", (name,))
+            if cursor.fetchone():
+                return jsonify({'error': 'Region already exists'}), 400
+            
+            # Create new region
+            cursor.execute("""
+                INSERT INTO regions (name, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (name, description, now, now))
+            
+            region_id = cursor.lastrowid
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Region "{name}" created successfully',
+                'region': {
+                    'id': region_id,
+                    'name': name,
+                    'description': description,
+                    'created_at': now,
+                    'updated_at': now
+                }
+            })
+            
+    except Exception as e:
+        logging.error(f"Create region error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/regions/<int:region_id>', methods=['PUT'])
+@superadmin_required
+def update_region(region_id):
+    """Update a region"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'error': 'Region name is required'}), 400
+        
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if region exists
+            cursor.execute("SELECT name FROM regions WHERE id = ?", (region_id,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Region not found'}), 404
+            
+            # Check if new name conflicts with another region
+            cursor.execute("SELECT id FROM regions WHERE name = ? AND id != ?", (name, region_id))
+            if cursor.fetchone():
+                return jsonify({'error': 'Region name already exists'}), 400
+            
+            # Update region
+            cursor.execute("""
+                UPDATE regions
+                SET name = ?, description = ?, updated_at = ?
+                WHERE id = ?
+            """, (name, description, now, region_id))
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Region "{name}" updated successfully'
+            })
+            
+    except Exception as e:
+        logging.error(f"Update region error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/regions/<int:region_id>', methods=['DELETE'])
+@superadmin_required
+def delete_region(region_id):
+    """Delete a region"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if region exists
+            cursor.execute("SELECT name FROM regions WHERE id = ?", (region_id,))
+            region_data = cursor.fetchone()
+            if not region_data:
+                return jsonify({'error': 'Region not found'}), 404
+            
+            region_name = region_data[0]
+            
+            # Check if region has locations
+            cursor.execute("SELECT COUNT(*) FROM locations WHERE region_id = ?", (region_id,))
+            location_count = cursor.fetchone()[0]
+            
+            if location_count > 0:
+                return jsonify({'error': f'Cannot delete region with {location_count} locations. Please delete or reassign locations first.'}), 400
+            
+            # Delete region
+            cursor.execute("DELETE FROM regions WHERE id = ?", (region_id,))
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Region "{region_name}" deleted successfully'
+            })
+            
+    except Exception as e:
+        logging.error(f"Delete region error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations', methods=['GET'])
+@login_required
+def get_locations():
+    """Get all locations with region info and device counts"""
+    try:
+        region_id = request.args.get('region_id', type=int)
+        unassigned = request.args.get('unassigned', '').lower() == 'true'
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            if unassigned:
+                # Get only locations without region assignment
+                cursor.execute("""
+                    SELECT l.id, l.name, l.region_id, NULL, l.description, l.created_at, l.updated_at
+                    FROM locations l
+                    WHERE l.region_id IS NULL
+                    ORDER BY l.name
+                """)
+            elif region_id:
+                # Get locations for specific region
+                cursor.execute("""
+                    SELECT l.id, l.name, l.region_id, r.name, l.description, l.created_at, l.updated_at
+                    FROM locations l
+                    JOIN regions r ON l.region_id = r.id
+                    WHERE l.region_id = ?
+                    ORDER BY l.name
+                """, (region_id,))
+            else:
+                # Get all locations (use LEFT JOIN to include unassigned)
+                cursor.execute("""
+                    SELECT l.id, l.name, l.region_id, r.name, l.description, l.created_at, l.updated_at
+                    FROM locations l
+                    LEFT JOIN regions r ON l.region_id = r.id
+                    ORDER BY r.name, l.name
+                """)
+            
+            locations = cursor.fetchall()
+        
+        # Count devices per location from Excel data
+        device_counts = {}
+        with results_lock:
+            if CACHED_DF is not None and 'Location' in CACHED_DF.columns:
+                # Count devices for each location, trimming whitespace
+                location_series = CACHED_DF['Location'].astype(str).str.strip()
+                device_counts = location_series.value_counts().to_dict()
+        
+        locations_list = []
+        for location in locations:
+            location_name = location[1]
+            # Try exact match first, then try with stripped whitespace
+            device_count = device_counts.get(location_name, 0)
+            if device_count == 0:
+                # Try to find with different whitespace
+                for loc_key in device_counts.keys():
+                    if loc_key.strip() == location_name.strip():
+                        device_count = device_counts[loc_key]
+                        break
+            
+            locations_list.append({
+                'id': location[0],
+                'name': location_name,
+                'region_id': location[2],
+                'region_name': location[3],
+                'description': location[4],
+                'created_at': location[5],
+                'updated_at': location[6],
+                'device_count': device_count
+            })
+        
+        return jsonify({'success': True, 'locations': locations_list})
+            
+    except Exception as e:
+        logging.error(f"Get locations error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations', methods=['POST'])
+@admin_required
+def create_location():
+    """Create a new location"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        region_id = data.get('region_id')
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'error': 'Location name is required'}), 400
+        
+        if not region_id:
+            return jsonify({'error': 'Region is required'}), 400
+        
+        # Regional admin: can only create locations in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            if int(region_id) != user['region_id']:
+                return jsonify({'error': 'You can only create locations in your assigned region'}), 403
+        
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if region exists
+            cursor.execute("SELECT name FROM regions WHERE id = ?", (region_id,))
+            region_data = cursor.fetchone()
+            if not region_data:
+                return jsonify({'error': 'Region not found'}), 404
+            
+            # Check if location already exists
+            cursor.execute("SELECT id FROM locations WHERE name = ?", (name,))
+            if cursor.fetchone():
+                return jsonify({'error': 'Location already exists'}), 400
+            
+            # Create new location
+            cursor.execute("""
+                INSERT INTO locations (name, region_id, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (name, region_id, description, now, now))
+            
+            location_id = cursor.lastrowid
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Location "{name}" created successfully',
+                'location': {
+                    'id': location_id,
+                    'name': name,
+                    'region_id': region_id,
+                    'region_name': region_data[0],
+                    'description': description,
+                    'created_at': now,
+                    'updated_at': now
+                }
+            })
+            
+    except Exception as e:
+        logging.error(f"Create location error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations/<int:location_id>', methods=['PUT'])
+@admin_required
+def update_location(location_id):
+    """Update a location"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        region_id = data.get('region_id')
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'error': 'Location name is required'}), 400
+        
+        if not region_id:
+            return jsonify({'error': 'Region is required'}), 400
+        
+        # Regional admin: can only update locations in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT region_id FROM locations WHERE id = ?", (location_id,))
+                loc_data = cursor.fetchone()
+                if not loc_data or loc_data[0] != user['region_id']:
+                    return jsonify({'error': 'You can only update locations in your region'}), 403
+                # Also check new region
+                if int(region_id) != user['region_id']:
+                    return jsonify({'error': 'You can only assign locations to your region'}), 403
+        
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if location exists
+            cursor.execute("SELECT name FROM locations WHERE id = ?", (location_id,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Location not found'}), 404
+            
+            # Check if region exists
+            cursor.execute("SELECT name FROM regions WHERE id = ?", (region_id,))
+            if not cursor.fetchone():
+                return jsonify({'error': 'Region not found'}), 404
+            
+            # Check if new name conflicts with another location
+            cursor.execute("SELECT id FROM locations WHERE name = ? AND id != ?", (name, location_id))
+            if cursor.fetchone():
+                return jsonify({'error': 'Location name already exists'}), 400
+            
+            # Update location
+            cursor.execute("""
+                UPDATE locations
+                SET name = ?, region_id = ?, description = ?, updated_at = ?
+                WHERE id = ?
+            """, (name, region_id, description, now, location_id))
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Location "{name}" updated successfully'
+            })
+            
+    except Exception as e:
+        logging.error(f"Update location error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations/<int:location_id>', methods=['DELETE'])
+@admin_required
+def delete_location(location_id):
+    """Delete a location"""
+    try:
+        # Regional admin: can only delete locations in their region
+        user = get_current_user()
+        if user['role'] == 'regional_admin' and user['region_id']:
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT region_id FROM locations WHERE id = ?", (location_id,))
+                loc_data = cursor.fetchone()
+                if not loc_data or loc_data[0] != user['region_id']:
+                    return jsonify({'error': 'You can only delete locations in your region'}), 403
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Check if location exists
+            cursor.execute("SELECT name FROM locations WHERE id = ?", (location_id,))
+            location_data = cursor.fetchone()
+            if not location_data:
+                return jsonify({'error': 'Location not found'}), 404
+            
+            location_name = location_data[0]
+            
+            # Check if location has devices (from Excel)
+            device_count = 0
+            if CACHED_DF is not None and 'Location' in CACHED_DF.columns:
+                device_count = len(CACHED_DF[CACHED_DF['Location'] == location_name])
+            
+            if device_count > 0:
+                return jsonify({'error': f'Cannot delete location with {device_count} devices. Please reassign devices first.'}), 400
+            
+            # Delete location
+            cursor.execute("DELETE FROM locations WHERE id = ?", (location_id,))
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Location "{location_name}" deleted successfully'
+            })
+            
+    except Exception as e:
+        logging.error(f"Delete location error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/sla_metrics')
 @login_required
@@ -2833,11 +4086,39 @@ def get_sla_metrics():
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
+        region_id = request.args.get('region_id')
+        user = get_current_user()
+        
+        # If user is not admin and has a region, enforce their region
+        if user['role'] != 'admin' and user.get('region_id'):
+            region_id = str(user['region_id'])
         
         if not start_date or not end_date:
             return jsonify({'error': 'Start and end dates are required'}), 400
         
-        logging.info(f"Fetching SLA metrics for date range: {start_date} to {end_date}")
+        logging.info(f"Fetching SLA metrics for date range: {start_date} to {end_date}, region_id: {region_id}")
+        
+        # Get allowed SM IPs for the region
+        allowed_ips = None
+        if region_id and CACHED_DF is not None:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (region_id,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+                    logging.info(f"Found {len(allowed_locations)} locations in region {region_id}")
+                    
+                    # Get SM IPs for these locations from CACHED_DF
+                    allowed_ips = set()
+                    for _, row in CACHED_DF.iterrows():
+                        location = str(row.get('Location', '')).strip()
+                        sm_ip = str(row.get('SM IP', ''))
+                        if location in allowed_locations and pd.notna(row.get('SM IP')):
+                            allowed_ips.add(sm_ip)
+                    
+                    logging.info(f"Filtering for {len(allowed_ips)} IPs in region {region_id}")
+            except Exception as e:
+                logging.error(f"Error fetching region filter: {e}")
         
         # Calculate SLA metrics from database with optimizations
         with sqlite3.connect('ping_history.db', timeout=60) as conn:
@@ -2845,6 +4126,15 @@ def get_sla_metrics():
             conn.execute("PRAGMA query_only = ON")
             conn.execute("PRAGMA temp_store = MEMORY")
             cursor = conn.cursor()
+            
+            # Build WHERE clause for region filtering
+            where_clause = "timestamp BETWEEN ? AND ?"
+            params = [start_date, end_date + ' 23:59:59']
+            
+            if allowed_ips:
+                placeholders = ','.join('?' * len(allowed_ips))
+                where_clause += f" AND sm_ip IN ({placeholders})"
+                params.extend(list(allowed_ips))
             
             # First, check if we have any data at all
             cursor.execute("SELECT COUNT(*) FROM history")
@@ -2866,7 +4156,7 @@ def get_sla_metrics():
                 })
             
             # Get total records in date range
-            cursor.execute("""
+            query = f"""
                 SELECT COUNT(*) as total_records,
                        SUM(CASE WHEN status = 'Reachable' THEN 1 ELSE 0 END) as reachable,
                        SUM(CASE WHEN status = 'Down' THEN 1 ELSE 0 END) as down,
@@ -2874,8 +4164,10 @@ def get_sla_metrics():
                        AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
                        COUNT(DISTINCT sm_ip) as total_devices
                 FROM history 
-                WHERE timestamp BETWEEN ? AND ?
-            """, (start_date, end_date + ' 23:59:59'))
+                WHERE {where_clause}
+            """
+            
+            cursor.execute(query, params)
             
             metrics = cursor.fetchone()
             logging.info(f"Query results: {metrics}")
@@ -2900,22 +4192,26 @@ def get_sla_metrics():
             uptime = round((reachable / total_records) * 100, 2) if total_records > 0 else 0
             
             # Calculate availability (devices that had at least one successful ping)
-            cursor.execute("""
+            query = f"""
                 SELECT COUNT(DISTINCT sm_ip) as available_devices
                 FROM history 
-                WHERE timestamp BETWEEN ? AND ? AND status = 'Reachable'
-            """, (start_date, end_date + ' 23:59:59'))
+                WHERE {where_clause} AND status = 'Reachable'
+            """
+            
+            cursor.execute(query, params)
             
             available_devices = cursor.fetchone()[0]
             availability = round((available_devices / total_devices) * 100, 2) if total_devices > 0 else 0
             
             # Count incidents (simplified - count distinct down events per device per day)
-            cursor.execute("""
+            query = f"""
                 SELECT COUNT(DISTINCT sm_ip || DATE(timestamp)) as incidents
                 FROM history
-                WHERE timestamp BETWEEN ? AND ?
+                WHERE {where_clause}
                 AND status = 'Down'
-            """, (start_date, end_date + ' 23:59:59'))
+            """
+            
+            cursor.execute(query, params)
             
             incidents = cursor.fetchone()[0]
             
@@ -2926,15 +4222,17 @@ def get_sla_metrics():
             sla_compliance = round(uptime_score + latency_score + availability_score, 1)
             
             # Get trends data (daily aggregates)
-            cursor.execute("""
+            query = f"""
                 SELECT DATE(timestamp) as date,
                        AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as daily_uptime,
                        AVG(CASE WHEN latency IS NOT NULL THEN latency END) as daily_latency
                 FROM history 
-                WHERE timestamp BETWEEN ? AND ?
+                WHERE {where_clause}
                 GROUP BY DATE(timestamp)
                 ORDER BY date
-            """, (start_date, end_date + ' 23:59:59'))
+            """
+            
+            cursor.execute(query, params)
             
             trends_data = cursor.fetchall()
             trends = {
@@ -2947,34 +4245,38 @@ def get_sla_metrics():
             logging.info("Fetching IP performance rankings...")
             
             # Get best performing IPs
-            cursor.execute("""
+            query = f"""
                 SELECT sm_ip,
                        AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as uptime_pct,
                        AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
                        COUNT(*) as total_pings
                 FROM history 
-                WHERE timestamp BETWEEN ? AND ?
+                WHERE {where_clause}
                 GROUP BY sm_ip
                 HAVING total_pings >= 5
                 ORDER BY uptime_pct DESC, avg_latency ASC
                 LIMIT 10
-            """, (start_date, end_date + ' 23:59:59'))
+            """
+            
+            cursor.execute(query, params)
             
             best_performance = cursor.fetchall()
             
             # Get worst performing IPs
-            cursor.execute("""
+            query = f"""
                 SELECT sm_ip,
                        AVG(CASE WHEN status = 'Reachable' THEN 100.0 ELSE 0.0 END) as uptime_pct,
                        AVG(CASE WHEN latency IS NOT NULL THEN latency END) as avg_latency,
                        COUNT(*) as total_pings
                 FROM history 
-                WHERE timestamp BETWEEN ? AND ?
+                WHERE {where_clause}
                 GROUP BY sm_ip
                 HAVING total_pings >= 5
                 ORDER BY uptime_pct ASC, avg_latency DESC
                 LIMIT 10
-            """, (start_date, end_date + ' 23:59:59'))
+            """
+            
+            cursor.execute(query, params)
             
             worst_performance = cursor.fetchall()
             
@@ -3046,7 +4348,28 @@ def get_sla_metrics():
 def get_location_overview():
     """Get location-wise health overview"""
     try:
-        logging.info("Getting location overview...")
+        # Get region filter from query params
+        region_id = request.args.get('region_id')
+        user = get_current_user()
+        
+        # If user is not admin and has a region, enforce their region
+        if user['role'] != 'admin' and user.get('region_id'):
+            region_id = str(user['region_id'])
+        
+        logging.info(f"Getting location overview for region_id: {region_id}")
+        
+        # Get locations for the specified region
+        allowed_locations = None
+        if region_id:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (region_id,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+                    logging.info(f"Filtering for {len(allowed_locations)} locations in region {region_id}")
+            except Exception as e:
+                logging.error(f"Error fetching locations for region: {e}")
+        
         with results_lock:
             if not results:
                 logging.warning("No results available for location overview")
@@ -3065,6 +4388,11 @@ def get_location_overview():
             
             for result in results:
                 location = result.get('Location', 'Unknown').strip()
+                
+                # Filter by region if specified
+                if allowed_locations is not None and location not in allowed_locations:
+                    continue
+                
                 status = result.get('Status', 'Unknown')
                 latency_str = result.get('Latency', 'N/A')
                 
@@ -3133,9 +4461,29 @@ def get_location_downtime():
     try:
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
+        region_id = request.args.get('region_id')
+        user = get_current_user()
+        
+        # If user is not admin and has a region, enforce their region
+        if user['role'] != 'admin' and user.get('region_id'):
+            region_id = str(user['region_id'])
         
         if not start_date or not end_date:
             return jsonify({'error': 'Start and end dates are required'}), 400
+        
+        logging.info(f"Getting location downtime for region_id: {region_id}")
+        
+        # Get allowed locations for the region
+        allowed_locations = None
+        if region_id:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (region_id,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+                    logging.info(f"Filtering downtime for {len(allowed_locations)} locations in region {region_id}")
+            except Exception as e:
+                logging.error(f"Error fetching locations for region: {e}")
         
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
@@ -3145,7 +4493,10 @@ def get_location_downtime():
             if CACHED_DF is not None:
                 for _, row in CACHED_DF.iterrows():
                     if pd.notna(row.get('SM IP')):
-                        device_locations[str(row['SM IP'])] = str(row.get('Location', 'Unknown'))
+                        location = str(row.get('Location', 'Unknown')).strip()
+                        # Filter by region if specified
+                        if allowed_locations is None or location in allowed_locations:
+                            device_locations[str(row['SM IP'])] = location
             
             # Get downtime data by IP
             cursor.execute("""
@@ -3169,7 +4520,12 @@ def get_location_downtime():
             })
             
             for ip, downtime_hours, total_pings, last_down in ip_downtime:
-                location = device_locations.get(ip, 'Unknown')
+                location = device_locations.get(ip)
+                
+                # Skip if IP not in allowed locations (region filter)
+                if location is None:
+                    continue
+                
                 location_downtime[location]['total_downtime'] += downtime_hours
                 location_downtime[location]['device_count'] += 1
                 
@@ -3208,6 +4564,8 @@ def get_location_downtime():
             # Sort by total downtime descending
             locations.sort(key=lambda x: float(x['total_downtime'].replace('h', '')), reverse=True)
             
+            logging.info(f"Returning downtime for {len(locations)} locations")
+            
             return jsonify({
                 'locations': locations,
                 'chart_data': {
@@ -3220,9 +4578,9 @@ def get_location_downtime():
         logging.error(f"Location downtime error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/locations')
-def get_locations():
-    """Get all unique locations"""
+@app.route('/api/locations_from_excel')
+def get_locations_from_excel():
+    """Get all unique locations from Excel file (legacy)"""
     try:
         with results_lock:
             if CACHED_DF is None:
@@ -3667,12 +5025,13 @@ def force_ping():
         data = request.json
         ip = data.get('ip', '').strip()
         ping_type = data.get('ping_type', 'SM')  # SM or AP
+        sm_ip = data.get('sm_ip', ip).strip()  # The device we're viewing (for comments)
         
         if not ip or not validate_ip(ip):
             return jsonify({'error': 'Invalid IP address'}), 400
         
         # Perform the ping
-        status, latency = ping_ip(ip, timeout=2.0)  # Use longer timeout for manual ping
+        status, latency, issue_type = ping_ip(ip, timeout=2.0)  # Use longer timeout for manual ping
         
         # Get current timestamp
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -3692,15 +5051,15 @@ def force_ping():
         
         # Create detailed comment about manual ping
         latency_text = f" ({latency:.2f}ms)" if latency else ""
-        comment_text = f"Manual {ping_type} ping: {status}{latency_text} - Tested by {username}"
+        comment_text = f"Manual {ping_type} ping to {ip}: {status}{latency_text} - Tested by {username}"
         
-        # Add comment about manual ping
+        # Add comment to the SM device (the device being viewed)
         try:
             with sqlite3.connect('ping_history.db', timeout=10) as conn:
                 conn.execute("""
                     INSERT INTO device_comments (sm_ip, comment, username, timestamp, comment_type)
                     VALUES (?, ?, ?, ?, 'manual_ping')
-                """, (ip, comment_text, username, timestamp))
+                """, (sm_ip, comment_text, username, timestamp))
                 conn.commit()
         except Exception as comment_error:
             logging.error(f"Failed to add manual ping comment: {comment_error}")
@@ -3721,23 +5080,66 @@ def force_ping():
     except Exception as e:
         logging.error(f"Force ping error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-        logging.error(f"Force ping error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 # User Management API Routes
 @app.route('/api/users', methods=['GET'])
 @admin_required
 def get_users():
-    """Get all users"""
+    """Get all users, optionally filtered by location"""
     try:
-        users = get_all_users()
-        return jsonify({'success': True, 'users': users})
+        location_id = request.args.get('location_id')
+        
+        if location_id:
+            # Get users in specific location (by matching region)
+            with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                cursor = conn.cursor()
+                
+                # First get the region of the specified location
+                cursor.execute("SELECT region_id FROM locations WHERE id = ?", (location_id,))
+                location_result = cursor.fetchone()
+                
+                if not location_result:
+                    return jsonify({'error': 'Location not found'}), 404
+                
+                region_id = location_result[0]
+                
+                # Get users in that region
+                cursor.execute("""
+                    SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at, u.last_login,
+                           u.region_id, r.name as region_name
+                    FROM users u
+                    LEFT JOIN regions r ON u.region_id = r.id
+                    WHERE u.region_id = ? AND u.is_active = 1
+                    ORDER BY u.username
+                """, (region_id,))
+                
+                users = cursor.fetchall()
+                users_list = []
+                for user in users:
+                    users_list.append({
+                        'id': user[0],
+                        'username': user[1],
+                        'email': user[2],
+                        'role': user[3],
+                        'is_active': user[4],
+                        'created_at': user[5],
+                        'last_login': user[6],
+                        'region_id': user[7],
+                        'region_name': user[8]
+                    })
+                
+                return jsonify({'success': True, 'users': users_list})
+        else:
+            # Get all users (existing functionality)
+            users = get_all_users()
+            return jsonify({'success': True, 'users': users})
+            
     except Exception as e:
         logging.error(f"Get users error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/users', methods=['POST'])
-@admin_required
+@superadmin_required
 def create_user():
     """Create a new user"""
     try:
@@ -3746,6 +5148,7 @@ def create_user():
         email = data.get('email', '').strip()
         password = data.get('password', '')
         role = data.get('role', 'user')
+        region_id = data.get('region_id')  # NEW: Get region assignment
         
         # Validation
         if not username or not email or not password:
@@ -3756,6 +5159,10 @@ def create_user():
         
         if len(password) < 6:
             return jsonify({'error': 'Password must be at least 6 characters long'}), 400
+        
+        # Region validation for non-admin users
+        if role == 'user' and not region_id:
+            return jsonify({'error': 'Region assignment is required for regular users'}), 400
         
         # Email validation
         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -3777,12 +5184,18 @@ def create_user():
             if cursor.fetchone():
                 return jsonify({'error': 'Username or email already exists'}), 400
             
-            # Create new user
+            # Verify region exists if provided
+            if region_id:
+                cursor.execute("SELECT id FROM regions WHERE id = ?", (region_id,))
+                if not cursor.fetchone():
+                    return jsonify({'error': 'Invalid region ID'}), 400
+            
+            # Create new user with region assignment
             password_hash = hash_password(password)
             cursor.execute("""
-                INSERT INTO users (username, email, password_hash, role, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (username, email, password_hash, role, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                INSERT INTO users (username, email, password_hash, role, region_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, email, password_hash, role, region_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             
             return jsonify({'success': True, 'message': f'User {username} created successfully'})
@@ -3792,7 +5205,7 @@ def create_user():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
-@admin_required
+@superadmin_required
 def update_user(user_id):
     """Update user details"""
     try:
@@ -3802,29 +5215,61 @@ def update_user(user_id):
             cursor = conn.cursor()
             
             # Check if user exists
-            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-            if not cursor.fetchone():
+            cursor.execute("SELECT id, role FROM users WHERE id = ?", (user_id,))
+            user_data = cursor.fetchone()
+            if not user_data:
                 return jsonify({'error': 'User not found'}), 404
+            
+            current_role = user_data[1]
             
             # Update fields
             update_fields = []
             update_values = []
             
             if 'role' in data:
-                if data['role'] not in ['user', 'admin']:
-                    return jsonify({'error': 'Role must be either "user" or "admin"'}), 400
+                if data['role'] not in ['user', 'superadmin', 'regional_admin']:
+                    return jsonify({'error': 'Role must be "user", "regional_admin", or "superadmin"'}), 400
                 update_fields.append('role = ?')
                 update_values.append(data['role'])
+                current_role = data['role']  # Update current role for region validation
             
             if 'is_active' in data:
                 update_fields.append('is_active = ?')
                 update_values.append(1 if data['is_active'] else 0)
+            
+            # Handle region_id update
+            if 'region_id' in data:
+                if current_role == 'superadmin':
+                    # Superadmin users should have NULL region_id
+                    update_fields.append('region_id = ?')
+                    update_values.append(None)
+                else:
+                    # Regular users and regional_admin must have a region_id
+                    region_id = data['region_id']
+                    if region_id:
+                        # Verify region exists
+                        cursor.execute("SELECT id FROM regions WHERE id = ?", (region_id,))
+                        if not cursor.fetchone():
+                            return jsonify({'error': 'Invalid region ID'}), 400
+                        update_fields.append('region_id = ?')
+                        update_values.append(region_id)
+                    else:
+                        return jsonify({'error': f'{current_role} users must be assigned to a region'}), 400
             
             if update_fields:
                 update_values.append(user_id)
                 query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
                 cursor.execute(query, update_values)
                 conn.commit()
+            
+            # Log the action
+            current_admin = get_current_user()
+            if current_admin:
+                changes = []
+                if 'role' in data: changes.append(f"role→{data['role']}")
+                if 'is_active' in data: changes.append(f"active→{data['is_active']}")
+                if 'region_id' in data: changes.append(f"region→{data['region_id']}")
+                log_user_activity(current_admin['id'], current_admin['username'], 'user_update', f"Updated user ID {user_id}: {', '.join(changes)}")
             
             return jsonify({'success': True, 'message': 'User updated successfully'})
             
@@ -3833,7 +5278,7 @@ def update_user(user_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
-@admin_required
+@superadmin_required
 def delete_user(user_id):
     """Delete a user"""
     try:
@@ -3855,6 +5300,10 @@ def delete_user(user_id):
             # Delete user
             cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
             conn.commit()
+            
+            current_admin = get_current_user()
+            if current_admin:
+                log_user_activity(current_admin['id'], current_admin['username'], 'user_delete', f"Deleted user '{username}' (ID: {user_id})")
             
             return jsonify({'success': True, 'message': f'User {username} deleted successfully'})
             
@@ -3892,6 +5341,149 @@ def get_users_list():
     except Exception as e:
         logging.error(f"Get users error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/users/migrate-location', methods=['POST'])
+@admin_required
+def migrate_users_location():
+    """Migrate users from one location to another"""
+    try:
+        data = request.json
+        user_ids = data.get('user_ids', [])
+        source_location_id = data.get('source_location_id')
+        target_location_id = data.get('target_location_id')
+        
+        if not user_ids or not source_location_id or not target_location_id:
+            return jsonify({'error': 'Missing required parameters'}), 400
+            
+        if source_location_id == target_location_id:
+            return jsonify({'error': 'Source and target locations cannot be the same'}), 400
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Get target location info
+            cursor.execute("""
+                SELECT l.name, l.region_id, r.name as region_name
+                FROM locations l
+                LEFT JOIN regions r ON l.region_id = r.id
+                WHERE l.id = ?
+            """, (target_location_id,))
+            target_location = cursor.fetchone()
+            
+            if not target_location:
+                return jsonify({'error': 'Target location not found'}), 404
+            
+            target_region_id = target_location[1]
+            
+            # Update users' region to match target location's region
+            migrated_count = 0
+            for user_id in user_ids:
+                # Update user's region
+                cursor.execute("""
+                    UPDATE users 
+                    SET region_id = ?
+                    WHERE id = ?
+                """, (target_region_id, user_id))
+                
+                if cursor.rowcount > 0:
+                    migrated_count += 1
+                    
+                    # Log the migration activity
+                    cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+                    user_result = cursor.fetchone()
+                    username = user_result[0] if user_result else f"User {user_id}"
+                    
+                    log_user_activity(
+                        user_id=session.get('user_id'),
+                        username=session.get('username'),
+                        activity_type='location_migration',
+                        activity_description=f"Migrated user {username} to location {target_location[0]}",
+                        ip_address=request.remote_addr
+                    )
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True, 
+                'migrated_count': migrated_count,
+                'target_location': target_location[0],
+                'target_region': target_location[2] or 'Unassigned'
+            })
+            
+    except Exception as e:
+        logging.error(f"Location migration error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/activity_logs')
+@superadmin_required
+def get_activity_logs():
+    """Get user activity logs for superadmin"""
+    try:
+        username_filter = request.args.get('username', '').strip()
+        action_filter = request.args.get('action', '').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        limit = int(request.args.get('limit', 999999))
+
+        query = "SELECT id, user_id, username, activity_type, activity_description, ip_address, timestamp FROM user_activity_logs WHERE 1=1"
+        params = []
+
+        if username_filter:
+            query += " AND username LIKE ?"
+            params.append(f"%{username_filter}%")
+        if action_filter:
+            query += " AND activity_type = ?"
+            params.append(action_filter)
+        if date_from:
+            query += " AND timestamp >= ?"
+            params.append(date_from)
+        if date_to:
+            query += " AND timestamp <= ?"
+            params.append(date_to + ' 23:59:59')
+
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        logs = [{'id': r[0], 'user_id': r[1], 'username': r[2], 'action': r[3],
+                 'description': r[4], 'ip': r[5], 'timestamp': r[6]} for r in rows]
+        return jsonify({'success': True, 'logs': logs})
+    except Exception as e:
+        logging.error(f"Error fetching activity logs: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/online_users')
+@superadmin_required
+def get_online_users():
+    """Get currently online users based on active sessions"""
+    try:
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT u.username, u.role, s.ip_address, s.created_at, s.expires_at
+                FROM user_sessions s
+                JOIN users u ON s.user_id = u.id
+                WHERE s.expires_at > ?
+                ORDER BY s.created_at DESC
+            """, (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+            rows = cursor.fetchall()
+
+        seen = {}
+        for r in rows:
+            if r[0] not in seen:
+                seen[r[0]] = {'username': r[0], 'role': r[1], 'ip': r[2],
+                              'login_time': r[3], 'expires_at': r[4]}
+
+        return jsonify({'success': True, 'online_users': list(seen.values()), 'count': len(seen)})
+    except Exception as e:
+        logging.error(f"Error fetching online users: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/assign_device', methods=['POST'])
 @admin_required
@@ -4356,6 +5948,20 @@ def get_all_devices_for_tasks():
     try:
         user = get_current_user()
         current_username = user['username']
+        user_region_id = user.get('region_id')
+        user_role = user.get('role')
+        
+        # Get allowed locations for user's region
+        allowed_locations = None
+        if user_role != 'admin' and user_region_id:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (user_region_id,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+                    logging.info(f"User {current_username} filtering for {len(allowed_locations)} locations in region {user_region_id}")
+            except Exception as e:
+                logging.error(f"Error fetching user's region locations: {e}")
         
         # Get all current devices from monitoring results
         devices_list = []
@@ -4389,6 +5995,12 @@ def get_all_devices_for_tasks():
                 logging.info(f"Total devices in results: {total_devices}")
                 
                 for result in results:
+                    location = result.get('Location', result.get('location', 'N/A')).strip()
+                    
+                    # Filter by region if user is not admin
+                    if allowed_locations is not None and location not in allowed_locations:
+                        continue
+                    
                     # The results array uses 'Status' (capital S) not 'status'
                     status = result.get('Status', result.get('status', 'Unknown'))
                     sm_ip = result.get('SM IP', result.get('sm_ip'))
@@ -4413,7 +6025,7 @@ def get_all_devices_for_tasks():
                         device_data = {
                             'sm_ip': sm_ip,
                             'device_name': result.get('Device Name', result.get('device_name', 'N/A')),
-                            'location': result.get('Location', result.get('location', 'N/A')),
+                            'location': location,
                             'status': status,
                             'latency': result.get('Latency', result.get('latency', 'N/A')),
                             'ap_name': result.get('AP Name', result.get('ap_name', 'N/A')),
@@ -4447,65 +6059,115 @@ def get_all_devices_for_tasks():
 @app.route('/api/task_statistics')
 @login_required
 def get_task_statistics():
-    """Get task statistics for current user"""
+    """Get enhanced task statistics for current user with role-based filtering"""
     try:
         user = get_current_user()
         username = user['username']
+        user_role = user.get('role', 'user')
+        user_region = user.get('region_id')
         
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
             
-            # Get current month start
+            # Get time boundaries
             now = datetime.now()
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            week_start = now - timedelta(days=7)
             
-            # Monthly tasks done
-            cursor.execute("""
-                SELECT COUNT(*) FROM device_tasks 
-                WHERE assigned_to = ? AND status = 'closed' 
-                AND closed_at >= ?
-            """, (username, month_start.strftime('%Y-%m-%d %H:%M:%S')))
-            monthly_done = cursor.fetchone()[0]
+            # Build role-based filter conditions
+            role_filter = ""
+            role_params = []
             
-            # Total closed tasks
-            cursor.execute("""
-                SELECT COUNT(*) FROM device_tasks 
-                WHERE assigned_to = ? AND status = 'closed'
-            """, (username,))
-            total_closed = cursor.fetchone()[0]
+            if user_role == 'superadmin':
+                # SuperAdmin sees all tasks
+                role_filter = ""
+            elif user_role in ['admin', 'regional_admin']:
+                # Regional admin sees tasks in their region
+                if user_region:
+                    role_filter = " AND region_id = ?"
+                    role_params = [user_region]
+            else:
+                # Regular user sees only their own tasks
+                role_filter = " AND assigned_to = ?"
+                role_params = [username]
             
-            # Average duration (in hours)
-            cursor.execute("""
-                SELECT AVG(
-                    (julianday(closed_at) - julianday(created_at)) * 24
+            # Monthly solved tasks with average resolution time
+            cursor.execute(f"""
+                SELECT COUNT(*), AVG(
+                    (julianday(closed_at) - julianday(assigned_at)) * 24
                 ) FROM device_tasks 
-                WHERE assigned_to = ? AND status = 'closed'
-                AND closed_at IS NOT NULL
-            """, (username,))
-            avg_duration_result = cursor.fetchone()[0]
-            avg_duration = round(avg_duration_result, 2) if avg_duration_result else 0
+                WHERE status = 'closed' AND closed_at >= ?
+                AND assigned_at IS NOT NULL{role_filter}
+            """, [month_start.strftime('%Y-%m-%d %H:%M:%S')] + role_params)
+            monthly_result = cursor.fetchone()
+            monthly_done = monthly_result[0] or 0
+            monthly_avg_time = round(monthly_result[1], 2) if monthly_result[1] else 0
             
-            # Open tasks
-            cursor.execute("""
-                SELECT COUNT(*) FROM device_tasks 
-                WHERE assigned_to = ? AND status = 'open'
-            """, (username,))
-            open_tasks = cursor.fetchone()[0]
+            # Weekly solved tasks with average resolution time
+            cursor.execute(f"""
+                SELECT COUNT(*), AVG(
+                    (julianday(closed_at) - julianday(assigned_at)) * 24
+                ) FROM device_tasks 
+                WHERE status = 'closed' AND closed_at >= ?
+                AND assigned_at IS NOT NULL{role_filter}
+            """, [week_start.strftime('%Y-%m-%d %H:%M:%S')] + role_params)
+            weekly_result = cursor.fetchone()
+            weekly_done = weekly_result[0] or 0
+            weekly_avg_time = round(weekly_result[1], 2) if weekly_result[1] else 0
             
-            # In progress tasks
-            cursor.execute("""
+            # Pending tasks (assigned but not closed) with average pending duration
+            cursor.execute(f"""
+                SELECT COUNT(*), AVG(
+                    (julianday('now') - julianday(assigned_at)) * 24
+                ) FROM device_tasks 
+                WHERE status IN ('open', 'in_progress') AND assigned_to IS NOT NULL
+                AND assigned_at IS NOT NULL{role_filter}
+            """, role_params)
+            pending_result = cursor.fetchone()
+            pending_tasks = pending_result[0] or 0
+            pending_avg_duration = round(pending_result[1], 2) if pending_result[1] else 0
+            
+            # Available tasks (unassigned, visible to user's role/region)
+            available_filter = ""
+            available_params = []
+            if user_role == 'superadmin':
+                available_filter = ""
+            elif user_role in ['admin', 'regional_admin'] and user_region:
+                available_filter = " AND region_id = ?"
+                available_params = [user_region]
+            elif user_region:
+                available_filter = " AND region_id = ?"
+                available_params = [user_region]
+                
+            cursor.execute(f"""
                 SELECT COUNT(*) FROM device_tasks 
-                WHERE assigned_to = ? AND status = 'in_progress'
-            """, (username,))
-            in_progress_tasks = cursor.fetchone()[0]
+                WHERE status = 'open' AND assigned_to IS NULL{available_filter}
+            """, available_params)
+            available_tasks = cursor.fetchone()[0] or 0
+            
+            # Total closed tasks for user
+            user_filter = " AND assigned_to = ?" if user_role != 'superadmin' else ""
+            user_params = [username] if user_role != 'superadmin' else []
+            
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM device_tasks 
+                WHERE status = 'closed'{user_filter}
+            """, user_params)
+            total_closed = cursor.fetchone()[0] or 0
             
             return jsonify({
                 'success': True,
                 'monthly_done': monthly_done,
+                'monthly_avg_time': monthly_avg_time,
+                'weekly_done': weekly_done,
+                'weekly_avg_time': weekly_avg_time,
+                'pending_tasks': pending_tasks,
+                'pending_avg_duration': pending_avg_duration,
+                'available_tasks': available_tasks,
                 'total_closed': total_closed,
-                'avg_duration_hours': avg_duration,
-                'open_tasks': open_tasks,
-                'in_progress_tasks': in_progress_tasks
+                'avg_duration_hours': monthly_avg_time,  # Keep for backward compatibility
+                'open_tasks': available_tasks,  # Keep for backward compatibility
+                'in_progress_tasks': pending_tasks  # Keep for backward compatibility
             })
     except Exception as e:
         logging.error(f"Error getting task statistics: {str(e)}")
@@ -4524,11 +6186,35 @@ def create_task():
         description = data.get('description', '').strip()
         priority = data.get('priority', 'medium')
         assign_to_self = data.get('assign_to_self', False)
+        assigned_to_user = data.get('assigned_to', '').strip()
         
         if not sm_ip or not title:
             return jsonify({'error': 'SM IP and title are required'}), 400
         
-        assigned_to = user['username'] if assign_to_self else None
+        # Determine who to assign to
+        assigned_to = None
+        assigned_at = None
+        if assign_to_self:
+            assigned_to = user['username']
+            assigned_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        elif assigned_to_user:
+            assigned_to = assigned_to_user
+            assigned_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get device region from Excel data
+        region_id = None
+        if CACHED_DF is not None:
+            device_row = CACHED_DF[CACHED_DF['SM IP'] == sm_ip]
+            if not device_row.empty:
+                location = str(device_row.iloc[0].get('Location', '')).strip()
+                # Get region_id for this location
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT region_id FROM locations WHERE name = ?", (location,))
+                    region_result = cursor.fetchone()
+                    if region_result:
+                        region_id = region_result[0]
+        
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
@@ -4542,13 +6228,14 @@ def create_task():
             
             cursor.execute("""
                 INSERT INTO device_tasks 
-                (task_id, sm_ip, task_title, task_description, status, priority, assigned_to, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)
-            """, (task_id_str, sm_ip, title, description, priority, assigned_to, user['username'], timestamp, timestamp))
+                (task_id, sm_ip, task_title, task_description, status, priority, assigned_to, assigned_at, created_by, created_at, updated_at, region_id)
+                VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
+            """, (task_id_str, sm_ip, title, description, priority, assigned_to, assigned_at, user['username'], timestamp, timestamp, region_id))
             task_id = cursor.lastrowid
             conn.commit()
         
-        logging.info(f"Task created: ID={task_id_str}, IP={sm_ip}, User={user['username']}")
+        logging.info(f"Task created: ID={task_id_str}, IP={sm_ip}, User={user['username']}, Region={region_id}")
+        log_user_activity(user['id'], user['username'], 'task_create', f"Created task {task_id_str} for device {sm_ip} - '{title}' (Priority: {priority})")
         return jsonify({'success': True, 'task_id': task_id, 'task_id_str': task_id_str, 'message': 'Task created successfully'})
     except Exception as e:
         logging.error(f"Error creating task: {str(e)}")
@@ -4683,6 +6370,7 @@ def update_task(task_id):
             conn.commit()
         
         logging.info(f"Task updated: ID={task_id}, Status={status}, User={user['username']}")
+        log_user_activity(user['id'], user['username'], f"task_{status}", f"{'Closed' if status == 'closed' else 'Updated'} task #{task_id} (status: {status})")
         
         # Return success with optional AP warning
         response = {'success': True, 'message': 'Task updated successfully'}
@@ -4714,6 +6402,7 @@ def assign_task_to_self(task_id):
             conn.commit()
         
         logging.info(f"Task assigned: ID={task_id}, User={user['username']}")
+        log_user_activity(user['id'], user['username'], 'task_assign', f"Assigned task #{task_id} to themselves")
         return jsonify({'success': True, 'message': 'Task assigned to you'})
     except Exception as e:
         logging.error(f"Error assigning task: {str(e)}")
@@ -4791,7 +6480,27 @@ def get_my_tasks_list():
     try:
         user = get_current_user()
         username = user['username']
-        is_admin = user['role'] == 'admin'
+        is_admin = user['role'] in ['admin', 'superadmin', 'regional_admin']
+        user_region_id = user.get('region_id')
+        
+        # Get allowed locations for user's region
+        allowed_locations = None
+        if not is_admin and user_region_id:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (user_region_id,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+                    logging.info(f"User {username} filtering tasks for {len(allowed_locations)} locations in region {user_region_id}")
+            except Exception as e:
+                logging.error(f"Error fetching user's region locations: {e}")
+        
+        # Get device location mapping
+        device_locations = {}
+        if CACHED_DF is not None:
+            for _, row in CACHED_DF.iterrows():
+                if pd.notna(row.get('SM IP')):
+                    device_locations[str(row['SM IP'])] = str(row.get('Location', 'Unknown')).strip()
         
         with sqlite3.connect('ping_history.db', timeout=10) as conn:
             cursor = conn.cursor()
@@ -4827,10 +6536,17 @@ def get_my_tasks_list():
             
             tasks = []
             for row in cursor.fetchall():
+                sm_ip = row[2]
+                location = device_locations.get(sm_ip, 'Unknown')
+                
+                # Filter by region if user is not admin
+                if allowed_locations is not None and location not in allowed_locations:
+                    continue
+                
                 tasks.append({
                     'id': row[0],
                     'task_id': row[1],
-                    'sm_ip': row[2],
+                    'sm_ip': sm_ip,
                     'title': row[3],
                     'description': row[4],
                     'status': row[5],
@@ -4846,6 +6562,125 @@ def get_my_tasks_list():
             return jsonify({'success': True, 'tasks': tasks})
     except Exception as e:
         logging.error(f"Error getting tasks: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tasks/solved')
+@login_required
+def get_solved_tasks():
+    """Get solved/closed tasks with filtering options"""
+    try:
+        user = get_current_user()
+        username = user['username']
+        user_role = user.get('role', 'user')
+        user_region = user.get('region_id')
+        
+        # Get filter parameters
+        period = request.args.get('period', 'all')  # weekly, monthly, all
+        
+        # Calculate time boundaries
+        now = datetime.now()
+        time_filter = ""
+        time_params = []
+        
+        if period == 'weekly':
+            week_start = now - timedelta(days=7)
+            time_filter = " AND closed_at >= ?"
+            time_params = [week_start.strftime('%Y-%m-%d %H:%M:%S')]
+        elif period == 'monthly':
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            time_filter = " AND closed_at >= ?"
+            time_params = [month_start.strftime('%Y-%m-%d %H:%M:%S')]
+        
+        # Build role-based filter
+        role_filter = ""
+        role_params = []
+        
+        if user_role == 'superadmin':
+            # SuperAdmin sees all solved tasks
+            role_filter = ""
+        elif user_role in ['admin', 'regional_admin']:
+            # Regional admin sees solved tasks in their region
+            if user_region:
+                role_filter = " AND region_id = ?"
+                role_params = [user_region]
+        else:
+            # Regular user sees only their own solved tasks
+            role_filter = " AND assigned_to = ?"
+            role_params = [username]
+        
+        # Get device location mapping for region filtering
+        device_locations = {}
+        allowed_locations = None
+        
+        if CACHED_DF is not None:
+            for _, row in CACHED_DF.iterrows():
+                if pd.notna(row.get('SM IP')):
+                    device_locations[str(row['SM IP'])] = str(row.get('Location', 'Unknown')).strip()
+        
+        # Get allowed locations for non-admin users
+        if user_role not in ['superadmin'] and user_region:
+            try:
+                with sqlite3.connect('ping_history.db', timeout=10) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM locations WHERE region_id = ?", (user_region,))
+                    allowed_locations = set(row[0].strip() for row in cursor.fetchall())
+            except Exception as e:
+                logging.error(f"Error fetching user's region locations: {e}")
+        
+        with sqlite3.connect('ping_history.db', timeout=10) as conn:
+            cursor = conn.cursor()
+            
+            # Query solved tasks
+            query = f"""
+                SELECT id, task_id, sm_ip, task_title, task_description, status, priority, 
+                       assigned_to, created_by, created_at, assigned_at, closed_at, resolution,
+                       (julianday(closed_at) - julianday(assigned_at)) * 24 as resolution_hours
+                FROM device_tasks 
+                WHERE status = 'closed' AND closed_at IS NOT NULL{time_filter}{role_filter}
+                ORDER BY closed_at DESC
+            """
+            
+            cursor.execute(query, time_params + role_params)
+            
+            tasks = []
+            for row in cursor.fetchall():
+                sm_ip = row[2]
+                location = device_locations.get(sm_ip, 'Unknown')
+                
+                # Filter by region if user is not superadmin
+                if allowed_locations is not None and location not in allowed_locations:
+                    continue
+                
+                resolution_hours = round(row[13], 2) if row[13] else 0
+                
+                tasks.append({
+                    'id': row[0],
+                    'task_id': row[1],
+                    'sm_ip': sm_ip,
+                    'device_name': location,
+                    'title': row[3],
+                    'description': row[4],
+                    'status': row[5],
+                    'priority': row[6],
+                    'assigned_to': row[7],
+                    'created_by': row[8],
+                    'created_at': row[9],
+                    'assigned_at': row[10],
+                    'closed_at': row[11],
+                    'resolution': row[12],
+                    'resolution_hours': resolution_hours
+                })
+            
+            return jsonify({
+                'success': True, 
+                'tasks': tasks,
+                'period': period,
+                'total_count': len(tasks)
+            })
+    except Exception as e:
+        logging.error(f"Error getting solved tasks: {str(e)}")
         import traceback
         logging.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
@@ -4886,11 +6721,29 @@ def get_device_task_history(sm_ip):
                     'resolution': row[12]
                 })
             
+            # Get manual ping test comments
+            cursor.execute("""
+                SELECT comment, username, timestamp
+                FROM device_comments
+                WHERE sm_ip = ? AND comment_type = 'manual_ping'
+                ORDER BY timestamp DESC
+                LIMIT 10
+            """, (sm_ip,))
+            
+            ping_tests = []
+            for row in cursor.fetchall():
+                ping_tests.append({
+                    'comment': row[0],
+                    'username': row[1],
+                    'timestamp': row[2]
+                })
+            
             return jsonify({
                 'success': True, 
                 'tasks': tasks,
                 'total_count': len(tasks),
-                'sm_ip': sm_ip
+                'sm_ip': sm_ip,
+                'ping_tests': ping_tests
             })
     except Exception as e:
         logging.error(f"Error getting device task history: {str(e)}")
@@ -5040,8 +6893,41 @@ def my_tasks():
 @login_required
 def dashboard():
     user = get_current_user()
-    users = get_all_users() if user and user['role'] == 'admin' else []
-    return render_template('index.html', user=user, users=users)
+    users = get_all_users() if user and user['role'] in ['admin', 'superadmin', 'regional_admin'] else []
+    
+    # Pass user's region_id to frontend for auto-filtering
+    user_region_id = user.get('region_id') if user else None
+    
+    return render_template('index.html', user=user, users=users, user_region_id=user_region_id)
+
+@app.route('/api/cached_results')
+@login_required
+def get_cached_results():
+    """Get last cached ping results immediately without waiting for next cycle"""
+    try:
+        with results_lock:
+            if not results:
+                return jsonify({
+                    'success': False,
+                    'message': 'No cached results available yet. Please wait for first ping cycle.'
+                })
+            
+            # Calculate pop summary from cached results
+            pop_summary = defaultdict(lambda: {'Reachable': 0, 'Degraded': 0, 'Down': 0})
+            for result in results:
+                location = result.get('Location', 'Unknown')
+                status = result.get('Status', 'Unknown')
+                if status in ['Reachable', 'Degraded', 'Down']:
+                    pop_summary[location][status] += 1
+            
+            return jsonify({
+                'success': True,
+                'results': results,
+                'pop_summary': dict(pop_summary)
+            })
+    except Exception as e:
+        logging.error(f"Error getting cached results: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/dashboard')
 @login_required
@@ -5053,6 +6939,926 @@ def test_maintenance():
     """Test page for maintenance mode functionality"""
     return send_file('test_maintenance.html')
 
+# ─────────────────────────────────────────────
+#  SNMP MONITOR  –  OID profiles + polling
+# ─────────────────────────────────────────────
+
+SNMP_OID_PROFILES = {
+    'raisecom': {
+        # Raisecom vendor OIDs (primary)
+        'cpu':      '1.3.6.1.4.1.8886.1.1.1.1.1.0',
+        'mem':      '1.3.6.1.4.1.8886.1.1.1.1.2.0',
+        # Standard fallback CPU (HOST-RESOURCES-MIB hrProcessorLoad)
+        'cpu_alt':  '1.3.6.1.2.1.25.3.3.1.2.1',
+        # Standard fallback mem used% (HOST-RESOURCES-MIB)
+        'mem_alt_used':  '1.3.6.1.2.1.25.2.3.1.6.1',
+        'mem_alt_total': '1.3.6.1.2.1.25.2.3.1.5.1',
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',  # ifHCInOctets (64-bit)
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',  # ifHCOutOctets (64-bit)
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'edgecore': {
+        # Edgecore/Accton vendor OIDs
+        'cpu':      '1.3.6.1.4.1.259.10.1.46.1.8.2.1.0',
+        'mem':      '1.3.6.1.4.1.259.10.1.46.1.8.1.1.0',
+        # Alternative Edgecore OIDs
+        'cpu_alt':  '1.3.6.1.4.1.259.10.1.46.1.8.2.1.1',
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'epmp': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'rx_tp':    '1.3.6.1.4.1.17713.21.1.2.18.0',
+        'tx_tp':    '1.3.6.1.4.1.17713.21.1.2.19.0',
+        'signal':   '1.3.6.1.4.1.17713.21.1.2.2.0',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+    },
+    'powerbeam': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'signal':   '1.3.6.1.4.1.41112.1.4.5.1.4.1',
+        'if_in':    '1.3.6.1.2.1.2.2.1.10',
+        'if_out':   '1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    },
+    'generic': {
+        'uptime':   '1.3.6.1.2.1.1.3.0',
+        'sysdesc':  '1.3.6.1.2.1.1.1.0',
+        'syscontact': '1.3.6.1.2.1.1.4.0',
+        'sysloc':   '1.3.6.1.2.1.1.6.0',
+        # Standard HOST-RESOURCES CPU/mem
+        'cpu_alt':  '1.3.6.1.2.1.25.3.3.1.2.1',
+        'mem_alt_used':  '1.3.6.1.2.1.25.2.3.1.6.1',
+        'mem_alt_total': '1.3.6.1.2.1.25.2.3.1.5.1',
+        'if_in':    '1.3.6.1.2.1.31.1.1.1.10',
+        'if_out':   '1.3.6.1.2.1.31.1.1.1.12',
+        'if_in_32': '1.3.6.1.2.1.2.2.1.10',
+        'if_out_32':'1.3.6.1.2.1.2.2.1.16',
+        'if_name':  '1.3.6.1.2.1.31.1.1.1.1',
+    }
+}
+
+# Cache previous byte counters for delta calculation
+_snmp_prev_bytes = {}  # device_id -> (rx, tx, timestamp)
+
+def _snmp_get(ip, community, oid, timeout=3, retries=1):
+    """Single SNMP GET using system snmpget binary"""
+    try:
+        result = subprocess.run(
+            ['snmpget', '-v2c', '-c', community, '-t', str(timeout), '-r', str(retries),
+             '-Oqv', ip, oid],
+            capture_output=True, text=True, timeout=timeout + 2
+        )
+        val = result.stdout.strip()
+        if result.returncode != 0 or not val or 'No Such' in val or 'Timeout' in val:
+            return None
+        # Strip quotes if string value
+        return val.strip('"')
+    except Exception:
+        return None
+
+def _snmp_walk(ip, community, oid, timeout=3, retries=1):
+    """SNMP WALK using system snmpwalk binary, returns list of (oid, value)"""
+    results_list = []
+    try:
+        result = subprocess.run(
+            ['snmpwalk', '-v2c', '-c', community, '-t', str(timeout), '-r', str(retries),
+             '-Oqn', ip, oid],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return []
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if not line or 'No Such' in line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                oid_str, val_str = parts
+                val_str = val_str.strip().strip('"')
+                try:
+                    results_list.append((oid_str, int(val_str)))
+                except ValueError:
+                    results_list.append((oid_str, val_str))
+    except Exception:
+        pass
+    return results_list
+
+def snmp_poll_device(device):
+    """Poll a single SNMP device and store metrics"""
+    device_id = device['id']
+    ip = device['ip']
+    community = device['community']
+    dtype = device['device_type']
+    profile = SNMP_OID_PROFILES.get(dtype, SNMP_OID_PROFILES['generic'])
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    status = 'offline'
+    uptime_seconds = None
+    cpu_percent = None
+    mem_percent = None
+    signal_dbm = None
+    rx_bytes_total = None
+    tx_bytes_total = None
+    interfaces = []
+
+    try:
+        # Uptime check (also serves as reachability test)
+        uptime_val = _snmp_get(ip, community, profile['uptime'])
+        if uptime_val is not None:
+            status = 'online'
+            try:
+                uptime_seconds = int(uptime_val) // 100  # timeticks -> seconds
+            except Exception:
+                uptime_seconds = None
+
+        if status == 'offline':
+            _store_snmp_metric(device_id, now, status, None, None, None, [], None, None, None)
+            return
+
+        # CPU — try vendor OID first, then standard fallback
+        if 'cpu' in profile:
+            cpu_val = _snmp_get(ip, community, profile['cpu'])
+            if cpu_val is not None:
+                try:
+                    cpu_percent = float(cpu_val)
+                except Exception:
+                    pass
+        if cpu_percent is None and 'cpu_alt' in profile:
+            cpu_val = _snmp_get(ip, community, profile['cpu_alt'])
+            if cpu_val is not None:
+                try:
+                    cpu_percent = float(cpu_val)
+                except Exception:
+                    pass
+
+        # Memory — try vendor OID first, then HOST-RESOURCES-MIB ratio
+        if 'mem' in profile:
+            mem_val = _snmp_get(ip, community, profile['mem'])
+            if mem_val is not None:
+                try:
+                    mem_percent = float(mem_val)
+                except Exception:
+                    pass
+        if mem_percent is None and 'mem_alt_used' in profile and 'mem_alt_total' in profile:
+            used_val  = _snmp_get(ip, community, profile['mem_alt_used'])
+            total_val = _snmp_get(ip, community, profile['mem_alt_total'])
+            if used_val is not None and total_val is not None:
+                try:
+                    used  = float(used_val)
+                    total = float(total_val)
+                    if total > 0:
+                        mem_percent = round((used / total) * 100, 1)
+                except Exception:
+                    pass
+
+        # Signal (ePMP / PowerBeam)
+        if 'signal' in profile:
+            sig_val = _snmp_get(ip, community, profile['signal'])
+            if sig_val is not None:
+                try:
+                    signal_dbm = float(sig_val)
+                    # ePMP returns in dBm*10
+                    if dtype == 'epmp' and abs(signal_dbm) > 200:
+                        signal_dbm = signal_dbm / 10.0
+                except Exception:
+                    pass
+
+        # Interface traffic via WALK — try HC (64-bit) first, fall back to 32-bit
+        if_in_data = _snmp_walk(ip, community, profile['if_in'])
+        if not if_in_data and 'if_in_32' in profile:
+            if_in_data = _snmp_walk(ip, community, profile['if_in_32'])
+        if_out_data = _snmp_walk(ip, community, profile['if_out'])
+        if not if_out_data and 'if_out_32' in profile:
+            if_out_data = _snmp_walk(ip, community, profile['if_out_32'])
+        if_names = {}
+        if 'if_name' in profile:
+            for oid_str, val in _snmp_walk(ip, community, profile['if_name']):
+                idx = oid_str.split('.')[-1]
+                if_names[idx] = str(val)
+
+        rx_total = sum(v for _, v in if_in_data)
+        tx_total = sum(v for _, v in if_out_data)
+        rx_bytes_total = rx_total
+        tx_bytes_total = tx_total
+
+        # Build per-interface list
+        for (oid_str, rx_val), (_, tx_val) in zip(if_in_data, if_out_data):
+            idx = oid_str.split('.')[-1]
+            interfaces.append({
+                'index': idx,
+                'name': if_names.get(idx, f'if{idx}'),
+                'rx_bytes': rx_val,
+                'tx_bytes': tx_val
+            })
+
+        # Compute Mbps using delta from previous poll
+        rx_mbps = None
+        tx_mbps = None
+        prev = _snmp_prev_bytes.get(device_id)
+        if prev:
+            prev_rx, prev_tx, prev_ts = prev
+            try:
+                elapsed = (datetime.strptime(now, '%Y-%m-%d %H:%M:%S') -
+                           datetime.strptime(prev_ts, '%Y-%m-%d %H:%M:%S')).total_seconds()
+                if elapsed > 0:
+                    rx_mbps = round(((rx_total - prev_rx) * 8) / elapsed / 1_000_000, 3)
+                    tx_mbps = round(((tx_total - prev_tx) * 8) / elapsed / 1_000_000, 3)
+                    if rx_mbps < 0: rx_mbps = None
+                    if tx_mbps < 0: tx_mbps = None
+            except Exception:
+                pass
+        _snmp_prev_bytes[device_id] = (rx_total, tx_total, now)
+
+        # Store Mbps in interfaces list for convenience
+        for iface in interfaces:
+            iface['rx_mbps'] = rx_mbps
+            iface['tx_mbps'] = tx_mbps
+
+    except Exception as e:
+        logging.error(f"SNMP poll error for {ip}: {e}")
+        status = 'error'
+
+    _store_snmp_metric(device_id, now, status, uptime_seconds, cpu_percent, mem_percent,
+                       interfaces, rx_bytes_total, tx_bytes_total, signal_dbm)
+    # Poll per-port metrics for switches
+    if status == 'online' and dtype in ('raisecom', 'edgecore', 'generic'):
+        _poll_switch_ports(device_id, ip, community, now)
+
+def _store_snmp_metric(device_id, timestamp, status, uptime_seconds, cpu_percent,
+                       mem_percent, interfaces, rx_bytes, tx_bytes, signal_dbm):
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''INSERT INTO snmp_metrics
+                        (device_id, timestamp, status, uptime_seconds, cpu_percent,
+                         mem_percent, interfaces_json, rx_bytes, tx_bytes, signal_dbm)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                     (device_id, timestamp, status, uptime_seconds, cpu_percent,
+                      mem_percent, json.dumps(interfaces), rx_bytes, tx_bytes, signal_dbm))
+        conn.execute('''DELETE FROM snmp_metrics WHERE device_id = ? AND
+                        timestamp < datetime('now', '-24 hours')''', (device_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error storing SNMP metric: {e}")
+
+# Cache previous port byte counters: (device_id, port_index) -> (rx, tx, timestamp)
+_port_prev_bytes = {}
+
+def _poll_switch_ports(device_id, ip, community, now):
+    """Poll physical ports only (ifType=6 ethernet) on a switch."""
+    try:
+        if_type     = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.3')}
+        if_descr    = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.2')}
+        if_name     = {o.split('.')[-1]: str(v).strip('"') for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.1')}
+        if_speed    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.5')}
+        if_admin    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.7')}
+        if_oper     = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.8')}
+        if_in_err   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.14')}
+        if_out_err  = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.20')}
+        if_in_hc    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.10')}
+        if_out_hc   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.31.1.1.1.12')}
+        if_in_32    = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.10')}
+        if_out_32   = {o.split('.')[-1]: v for o, v in _snmp_walk(ip, community, '1.3.6.1.2.1.2.2.1.16')}
+
+        if not if_descr:
+            return
+
+        # Only physical ethernet ports (ifType=6)
+        physical_ports = {idx for idx, t in if_type.items() if t == 6}
+        if not physical_ports:
+            # Fallback: exclude ports whose ifDescr starts with "IP"
+            physical_ports = {idx for idx, d in if_descr.items() if not d.upper().startswith('IP')}
+
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        cursor = conn.cursor()
+        cursor.execute("SELECT port_index, custom_label, ap_ip FROM snmp_switch_ports WHERE device_id=?", (device_id,))
+        existing = {str(r[0]): {'custom_label': r[1], 'ap_ip': r[2]} for r in cursor.fetchall()}
+
+        # Remove non-physical ports from DB
+        cursor.execute("SELECT port_index FROM snmp_switch_ports WHERE device_id=?", (device_id,))
+        db_ports = {str(r[0]) for r in cursor.fetchall()}
+        for idx_str in db_ports - physical_ports:
+            conn.execute("DELETE FROM snmp_switch_ports WHERE device_id=? AND port_index=?",
+                         (device_id, int(idx_str)))
+            conn.execute("DELETE FROM snmp_port_metrics WHERE device_id=? AND port_index=?",
+                         (device_id, int(idx_str)))
+
+        for idx_str in physical_ports:
+            ex = existing.get(idx_str, {})
+            descr = if_descr.get(idx_str, f'Port{idx_str}')
+            name  = if_name.get(idx_str, '')
+            speed = if_speed.get(idx_str, 0)
+            admin = if_admin.get(idx_str, 1)
+
+            conn.execute('''INSERT INTO snmp_switch_ports
+                            (device_id, port_index, if_descr, if_name, speed_bps, admin_status,
+                             custom_label, ap_ip, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(device_id, port_index) DO UPDATE SET
+                            if_descr=excluded.if_descr, if_name=excluded.if_name,
+                            speed_bps=excluded.speed_bps, admin_status=excluded.admin_status,
+                            updated_at=excluded.updated_at''',
+                         (device_id, int(idx_str), descr, name, speed, admin,
+                          ex.get('custom_label'), ex.get('ap_ip'), now, now))
+
+            rx = if_in_hc.get(idx_str) or if_in_32.get(idx_str, 0)
+            tx = if_out_hc.get(idx_str) or if_out_32.get(idx_str, 0)
+            rx_mbps = tx_mbps = None
+            key = (device_id, idx_str)
+            prev = _port_prev_bytes.get(key)
+            if prev:
+                prev_rx, prev_tx, prev_ts = prev
+                try:
+                    elapsed = (datetime.strptime(now, '%Y-%m-%d %H:%M:%S') -
+                               datetime.strptime(prev_ts, '%Y-%m-%d %H:%M:%S')).total_seconds()
+                    if elapsed > 0:
+                        rx_mbps = round(((rx - prev_rx) * 8) / elapsed / 1_000_000, 4)
+                        tx_mbps = round(((tx - prev_tx) * 8) / elapsed / 1_000_000, 4)
+                        if rx_mbps < 0: rx_mbps = None
+                        if tx_mbps < 0: tx_mbps = None
+                except Exception:
+                    pass
+            _port_prev_bytes[key] = (rx, tx, now)
+
+            conn.execute('''INSERT INTO snmp_port_metrics
+                            (device_id, port_index, timestamp, oper_status,
+                             rx_bytes, tx_bytes, rx_mbps, tx_mbps,
+                             in_errors, out_errors, rx_bytes_hc, tx_bytes_hc)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (device_id, int(idx_str), now,
+                          if_oper.get(idx_str, 2),
+                          if_in_32.get(idx_str, 0), if_out_32.get(idx_str, 0),
+                          rx_mbps, tx_mbps,
+                          if_in_err.get(idx_str, 0), if_out_err.get(idx_str, 0),
+                          if_in_hc.get(idx_str), if_out_hc.get(idx_str)))
+
+        conn.execute('''DELETE FROM snmp_port_metrics WHERE device_id=? AND
+                        timestamp < datetime('now', '-24 hours')''', (device_id,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Port poll error for device {device_id}: {e}")
+
+def snmp_polling_loop():
+    """Background thread: poll all active SNMP devices every 60 seconds"""
+    logging.info("SNMP polling thread started")
+    while True:
+        try:
+            conn = sqlite3.connect('ping_history.db', timeout=10)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, ip, community, snmp_version, device_type FROM snmp_devices WHERE is_active = 1")
+            devices = [{'id': r[0], 'name': r[1], 'ip': r[2], 'community': r[3],
+                        'snmp_version': r[4], 'device_type': r[5]} for r in cursor.fetchall()]
+            conn.close()
+
+            for device in devices:
+                try:
+                    snmp_poll_device(device)
+                except Exception as e:
+                    logging.error(f"Poll error for device {device['id']}: {e}")
+        except Exception as e:
+            logging.error(f"SNMP polling loop error: {e}")
+        time.sleep(60)
+
+# Start SNMP polling thread
+_snmp_thread = Thread(target=snmp_polling_loop, daemon=True)
+_snmp_thread.start()
+
+# ─── SNMP API routes ───────────────────────────────────────────────────────────
+
+@app.route('/snmp_monitor')
+@login_required
+def snmp_monitor():
+    user = get_current_user()
+    return render_template('snmp_monitor.html', user=user)
+
+@app.route('/api/snmp/switches', methods=['GET'])
+@login_required
+def api_snmp_switches():
+    """Return all switch-type devices with their ports for the Add Device modal"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT id, name, ip, device_type, location FROM snmp_devices
+                          WHERE device_type IN ('raisecom','edgecore','generic') AND is_active=1
+                          ORDER BY name''')
+        switches = [dict(r) for r in cursor.fetchall()]
+        for sw in switches:
+            cursor.execute('''SELECT port_index, if_descr, if_name, custom_label, ap_ip
+                              FROM snmp_switch_ports WHERE device_id=? ORDER BY port_index''',
+                           (sw['id'],))
+            sw['ports'] = [dict(p) for p in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True, 'switches': switches})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/lookup_ip', methods=['GET'])
+@login_required
+def api_snmp_lookup_ip():
+    """Look up an IP in the main Excel sheet and return AP/SM details"""
+    ip = request.args.get('ip', '').strip()
+    if not ip:
+        return jsonify({'success': False, 'error': 'IP required'}), 400
+    try:
+        if CACHED_DF is None:
+            return jsonify({'success': False, 'error': 'Sheet not loaded'})
+        df = CACHED_DF
+        # Check if it's an AP IP
+        ap_rows = df[df['AP IP'].astype(str).str.strip() == ip]
+        if not ap_rows.empty:
+            ap_name = str(ap_rows.iloc[0]['AP Name']).strip()
+            location = str(ap_rows.iloc[0]['Location']).strip()
+            # Get all SMs under this AP
+            sm_list = []
+            for _, row in ap_rows.iterrows():
+                sm_list.append({
+                    'sm_ip': str(row['SM IP']).strip(),
+                    'cid': str(row['CID']).strip(),
+                    'device_name': str(row['Device Name']).strip(),
+                    'location': str(row['Location']).strip(),
+                })
+            return jsonify({
+                'success': True,
+                'found': True,
+                'role': 'ap',
+                'ap_name': ap_name,
+                'location': location,
+                'sm_count': len(sm_list),
+                'sm_devices': sm_list
+            })
+        # Check if it's a SM IP
+        sm_rows = df[df['SM IP'].astype(str).str.strip() == ip]
+        if not sm_rows.empty:
+            row = sm_rows.iloc[0]
+            return jsonify({
+                'success': True,
+                'found': True,
+                'role': 'sm',
+                'ap_name': str(row['AP Name']).strip(),
+                'ap_ip': str(row['AP IP']).strip(),
+                'device_name': str(row['Device Name']).strip(),
+                'cid': str(row['CID']).strip(),
+                'location': str(row['Location']).strip(),
+            })
+        return jsonify({'success': True, 'found': False})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices', methods=['GET'])
+@login_required
+def api_snmp_devices():
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT d.*, 
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_status,
+                          (SELECT timestamp FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_seen,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds,
+                          (SELECT cpu_percent FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as cpu_percent,
+                          (SELECT mem_percent FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as mem_percent,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT interfaces_json FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as interfaces_json
+                          FROM snmp_devices d ORDER BY d.name''')
+        rows = cursor.fetchall()
+        conn.close()
+        devices = []
+        for r in rows:
+            d = dict(r)
+            try:
+                ifaces = json.loads(d.get('interfaces_json') or '[]')
+                rx_mbps = ifaces[0].get('rx_mbps') if ifaces else None
+                tx_mbps = ifaces[0].get('tx_mbps') if ifaces else None
+            except Exception:
+                rx_mbps = tx_mbps = None
+            d['rx_mbps'] = rx_mbps
+            d['tx_mbps'] = tx_mbps
+            d.pop('interfaces_json', None)
+            devices.append(d)
+        return jsonify({'success': True, 'devices': devices})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices', methods=['POST'])
+@login_required
+def api_snmp_add_device():
+    try:
+        data = request.get_json()
+        required = ['name', 'ip', 'community', 'device_type']
+        for f in required:
+            if not data.get(f):
+                return jsonify({'success': False, 'error': f'{f} is required'}), 400
+        current_user = get_current_user()
+        added_by = current_user['username'] if current_user else 'unknown'
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''INSERT INTO snmp_devices (name, ip, community, snmp_version, device_type,
+                        location, region_id, added_by, created_at, is_active,
+                        description, model, port, mac_address, firmware)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)''',
+                     (data['name'], data['ip'], data['community'],
+                      data.get('snmp_version', '2c'), data['device_type'],
+                      data.get('location', ''), data.get('region_id'),
+                      added_by, datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                      data.get('description', ''), data.get('model', ''),
+                      data.get('port', 161), data.get('mac_address', ''),
+                      data.get('firmware', '')))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device added'})
+    except Exception as e:
+        logging.error(f"SNMP add device error: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>', methods=['PUT'])
+@login_required
+def api_snmp_update_device(device_id):
+    try:
+        data = request.get_json()
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('''UPDATE snmp_devices SET name=?, ip=?, community=?, snmp_version=?,
+                        device_type=?, location=?, region_id=?, is_active=?,
+                        description=?, model=?, port=?, mac_address=?, firmware=?
+                        WHERE id=?''',
+                     (data['name'], data['ip'], data['community'],
+                      data.get('snmp_version', '2c'), data['device_type'],
+                      data.get('location', ''), data.get('region_id'),
+                      data.get('is_active', 1),
+                      data.get('description', ''), data.get('model', ''),
+                      data.get('port', 161), data.get('mac_address', ''),
+                      data.get('firmware', ''), device_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device updated'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>', methods=['DELETE'])
+@login_required
+def api_snmp_delete_device(device_id):
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('DELETE FROM snmp_metrics WHERE device_id = ?', (device_id,))
+        conn.execute('DELETE FROM snmp_devices WHERE id = ?', (device_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Device deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/sm_devices', methods=['GET'])
+@login_required
+def api_snmp_sm_devices(device_id):
+    """Get SM devices under an AP from the main Excel sheet, with live ping status + SNMP data"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT ip FROM snmp_devices WHERE id = ?", (device_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        ap_ip = row[0].strip()
+
+        # Load all SNMP devices keyed by IP for quick lookup
+        cursor.execute('''SELECT d.id, d.ip, d.name, d.model, d.firmware, d.device_type,
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as snmp_status,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT interfaces_json FROM snmp_metrics m WHERE m.device_id=d.id ORDER BY m.timestamp DESC LIMIT 1) as interfaces_json
+                          FROM snmp_devices d''')
+        snmp_by_ip = {}
+        for sd in cursor.fetchall():
+            sd = dict(sd)
+            try:
+                ifaces = json.loads(sd.get('interfaces_json') or '[]')
+                sd['rx_mbps'] = ifaces[0].get('rx_mbps') if ifaces else None
+                sd['tx_mbps'] = ifaces[0].get('tx_mbps') if ifaces else None
+            except Exception:
+                sd['rx_mbps'] = sd['tx_mbps'] = None
+            sd.pop('interfaces_json', None)
+            snmp_by_ip[sd['ip'].strip()] = sd
+        conn.close()
+
+        if CACHED_DF is None:
+            return jsonify({'success': True, 'sm_devices': []})
+        df = CACHED_DF
+        ap_rows = df[df['AP IP'].astype(str).str.strip() == ap_ip]
+        sm_list = []
+        for _, r in ap_rows.iterrows():
+            sm_ip = str(r['SM IP']).strip()
+            status = 'Unknown'
+            latency = None
+            with results_lock:
+                for res in results:
+                    if res.get('SM IP', '').strip() == sm_ip:
+                        status = res.get('Status', 'Unknown')
+                        latency = res.get('Latency')
+                        break
+            snmp = snmp_by_ip.get(sm_ip)
+            sm_list.append({
+                'sm_ip': sm_ip,
+                'cid': str(r['CID']).strip(),
+                'device_name': str(r['Device Name']).strip(),
+                'location': str(r['Location']).strip(),
+                'status': status,
+                'latency': latency,
+                # SNMP enrichment
+                'snmp_id': snmp['id'] if snmp else None,
+                'snmp_status': snmp['snmp_status'] if snmp else None,
+                'model': snmp['model'] if snmp else None,
+                'firmware': snmp['firmware'] if snmp else None,
+                'signal_dbm': snmp['signal_dbm'] if snmp else None,
+                'uptime_seconds': snmp['uptime_seconds'] if snmp else None,
+                'rx_mbps': snmp['rx_mbps'] if snmp else None,
+                'tx_mbps': snmp['tx_mbps'] if snmp else None,
+            })
+        return jsonify({'success': True, 'ap_ip': ap_ip, 'sm_devices': sm_list})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/metrics', methods=['GET'])
+@login_required
+def api_snmp_device_metrics(device_id):
+    try:
+        hours = int(request.args.get('hours', 1))
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT timestamp, status, uptime_seconds, cpu_percent, mem_percent,
+                          interfaces_json, rx_bytes, tx_bytes, signal_dbm
+                          FROM snmp_metrics WHERE device_id = ?
+                          AND timestamp >= datetime('now', ?)
+                          ORDER BY timestamp ASC''',
+                       (device_id, f'-{hours} hours'))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        labels = [r['timestamp'] for r in rows]
+        rx_series, tx_series = [], []
+        for r in rows:
+            try:
+                ifaces = json.loads(r.get('interfaces_json') or '[]')
+                rx_series.append(ifaces[0].get('rx_mbps') if ifaces else None)
+                tx_series.append(ifaces[0].get('tx_mbps') if ifaces else None)
+            except Exception:
+                rx_series.append(None)
+                tx_series.append(None)
+        return jsonify({'success': True, 'metrics': rows,
+                        'chart': {'labels': labels, 'rx': rx_series, 'tx': tx_series}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/test', methods=['POST'])
+@login_required
+def api_snmp_test():
+    """Quick SNMP reachability test"""
+    try:
+        data = request.get_json()
+        ip = data.get('ip')
+        community = data.get('community', 'public')
+        if not ip:
+            return jsonify({'success': False, 'error': 'IP required'}), 400
+        val = _snmp_get(ip, community, '1.3.6.1.2.1.1.1.0', timeout=3, retries=1)
+        if val is not None:
+            return jsonify({'success': True, 'message': f'SNMP reachable. sysDescr: {str(val)[:200]}'})
+        else:
+            return jsonify({'success': False, 'message': 'No SNMP response. Check IP, community string, and that SNMP is enabled.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ─── SNMP Hierarchy routes ─────────────────────────────────────────────────────
+
+@app.route('/api/snmp/devices/<int:device_id>/children', methods=['GET'])
+@login_required
+def api_snmp_children(device_id):
+    """Get child APs linked to a switch, enriched with SM counts from Excel"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT d.id, d.name, d.ip, d.device_type, d.location, d.model,
+                          l.link_type,
+                          (SELECT status FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_status,
+                          (SELECT signal_dbm FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as signal_dbm,
+                          (SELECT uptime_seconds FROM snmp_metrics m WHERE m.device_id = d.id
+                           ORDER BY m.timestamp DESC LIMIT 1) as uptime_seconds
+                          FROM snmp_device_links l
+                          JOIN snmp_devices d ON d.id = l.child_id
+                          WHERE l.parent_id = ?
+                          ORDER BY d.name''', (device_id,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        for row in rows:
+            ap_ip = row['ip'].strip()
+            sm_count = 0
+            if CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == ap_ip]
+                sm_count = len(ap_rows)
+            row['sm_count'] = sm_count
+            # Live ping status
+            ping_status = 'Unknown'
+            with results_lock:
+                for res in results:
+                    if res.get('SM IP', '').strip() == ap_ip:
+                        ping_status = res.get('Status', 'Unknown')
+                        break
+            row['ping_status'] = ping_status
+        return jsonify({'success': True, 'children': rows})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/link', methods=['POST'])
+@login_required
+def api_snmp_link_device(device_id):
+    """Link a child AP to a parent switch. Auto-creates child device from Excel if not yet added."""
+    try:
+        data = request.get_json()
+        child_ip = data.get('child_ip', '').strip()
+        link_type = data.get('link_type', 'ap')
+        if not child_ip:
+            return jsonify({'success': False, 'error': 'child_ip required'}), 400
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        cursor = conn.cursor()
+        # Find or auto-create child device
+        cursor.execute("SELECT id FROM snmp_devices WHERE ip = ?", (child_ip,))
+        child_row = cursor.fetchone()
+        if child_row:
+            child_id = child_row[0]
+        else:
+            ap_name = child_ip
+            location = ''
+            device_type = 'epmp'
+            if CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == child_ip]
+                if not ap_rows.empty:
+                    ap_name = str(ap_rows.iloc[0]['AP Name']).strip()
+                    location = str(ap_rows.iloc[0]['Location']).strip()
+            current_user = get_current_user()
+            added_by = current_user['username'] if current_user else 'unknown'
+            cursor.execute('''INSERT INTO snmp_devices
+                              (name, ip, community, snmp_version, device_type, location,
+                               added_by, created_at, is_active)
+                              VALUES (?, ?, ?, '2c', ?, ?, ?, ?, 1)''',
+                           (ap_name, child_ip, data.get('community', 'public'),
+                            device_type, location, added_by,
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            child_id = cursor.lastrowid
+        try:
+            conn.execute('''INSERT INTO snmp_device_links (parent_id, child_id, link_type, created_at)
+                            VALUES (?, ?, ?, ?)''',
+                         (device_id, child_id, link_type,
+                          datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        except sqlite3.IntegrityError:
+            pass  # already linked
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'child_id': child_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/link/<int:child_id>', methods=['DELETE'])
+@login_required
+def api_snmp_unlink_device(device_id, child_id):
+    """Remove a child link"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.execute('DELETE FROM snmp_device_links WHERE parent_id=? AND child_id=?',
+                     (device_id, child_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ─── Switch Port routes ────────────────────────────────────────────────────────
+
+@app.route('/api/snmp/devices/<int:device_id>/ports', methods=['GET'])
+@login_required
+def api_snmp_ports(device_id):
+    """Get all ports for a switch with latest metrics and assigned AP info"""
+    try:
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT p.port_index, p.if_descr, p.if_name, p.custom_label, p.ap_ip,
+                          p.speed_bps, p.admin_status,
+                          (SELECT oper_status FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as oper_status,
+                          (SELECT rx_mbps FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as rx_mbps,
+                          (SELECT tx_mbps FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as tx_mbps,
+                          (SELECT in_errors FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as in_errors,
+                          (SELECT out_errors FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as out_errors,
+                          (SELECT timestamp FROM snmp_port_metrics m
+                           WHERE m.device_id=p.device_id AND m.port_index=p.port_index
+                           ORDER BY m.timestamp DESC LIMIT 1) as last_seen
+                          FROM snmp_switch_ports p
+                          WHERE p.device_id=?
+                          ORDER BY p.port_index''', (device_id,))
+        ports = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        for port in ports:
+            ap_ip = (port.get('ap_ip') or '').strip()
+            port['ap_name'] = None
+            port['ap_location'] = None
+            port['sm_count'] = 0
+            if ap_ip and CACHED_DF is not None:
+                ap_rows = CACHED_DF[CACHED_DF['AP IP'].astype(str).str.strip() == ap_ip]
+                if not ap_rows.empty:
+                    port['ap_name'] = str(ap_rows.iloc[0]['AP Name']).strip()
+                    port['ap_location'] = str(ap_rows.iloc[0]['Location']).strip()
+                    port['sm_count'] = len(ap_rows)
+        return jsonify({'success': True, 'ports': ports})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/ports/<int:port_index>', methods=['PUT'])
+@login_required
+def api_snmp_update_port(device_id, port_index):
+    """Update port custom label and/or assigned AP IP"""
+    try:
+        data = request.get_json()
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        # Only update fields that were actually sent
+        if 'custom_label' in data and 'ap_ip' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, ap_ip=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['custom_label'], data['ap_ip'], now, device_id, port_index))
+        elif 'custom_label' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET custom_label=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['custom_label'], now, device_id, port_index))
+        elif 'ap_ip' in data:
+            conn.execute('''UPDATE snmp_switch_ports SET ap_ip=?, updated_at=?
+                            WHERE device_id=? AND port_index=?''',
+                         (data['ap_ip'], now, device_id, port_index))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/snmp/devices/<int:device_id>/ports/<int:port_index>/metrics', methods=['GET'])
+@login_required
+def api_snmp_port_metrics(device_id, port_index):
+    """Historical traffic for a specific port"""
+    try:
+        hours = int(request.args.get('hours', 1))
+        conn = sqlite3.connect('ping_history.db', timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''SELECT timestamp, oper_status, rx_mbps, tx_mbps
+                          FROM snmp_port_metrics
+                          WHERE device_id=? AND port_index=?
+                          AND timestamp >= datetime('now', ?)
+                          ORDER BY timestamp ASC''',
+                       (device_id, port_index, f'-{hours} hours'))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({'success': True,
+                        'chart': {'labels': [r['timestamp'][11:16] for r in rows],
+                                  'rx': [r['rx_mbps'] for r in rows],
+                                  'tx': [r['tx_mbps'] for r in rows]}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 if __name__ == '__main__':
+    init_snmp_db()  # ensure SNMP tables exist before serving requests
     start_periodic_update()
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)

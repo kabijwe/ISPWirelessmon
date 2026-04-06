@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Tasks - Network Monitor</title>
+    <title>Tasks - Network Monitor</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -461,12 +461,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📋 My Tasks Dashboard</h1>
+            <h1>📋 Tasks Dashboard</h1>
             <div class="nav-buttons">
                 <a href="/" class="nav-btn">🏠 Dashboard</a>
-                {% if user.role == 'admin' %}
+                <a href="/sla" class="nav-btn">📊 SLA Monitor</a>
+                {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                 <a href="/admin" class="nav-btn">⚙️ Admin</a>
                 {% endif %}
+                <a href="/profile" class="nav-btn">
+                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,0.3); color: white; font-weight: bold; font-size: 11px; margin-right: 5px;">{{ user.username[0]|upper }}</span>
+                    {{ user.username }}
+                </a>
+                <a href="/logout" class="nav-btn">🚪 Logout</a>
             </div>
         </div>
         
@@ -474,33 +480,34 @@
             <div class="stat-card">
                 <div class="stat-icon">📊</div>
                 <div class="stat-value" id="monthlyDone">0</div>
-                <div class="stat-label">Monthly Done</div>
+                <div class="stat-label">Monthly Solved (<span id="monthlyAvgTime">0h</span> avg)</div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon">⏱️</div>
-                <div class="stat-value" id="avgDuration">0h</div>
-                <div class="stat-label">Avg Duration</div>
+                <div class="stat-icon">📈</div>
+                <div class="stat-value" id="weeklyDone">0</div>
+                <div class="stat-label">Weekly Solved (<span id="weeklyAvgTime">0h</span> avg)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-value" id="pendingTasks">0</div>
+                <div class="stat-label">Pending Tasks (<span id="pendingAvgDuration">0h</span> avg)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔍</div>
+                <div class="stat-value" id="availableTasks">0</div>
+                <div class="stat-label">Available Tasks</div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">✅</div>
                 <div class="stat-value" id="totalClosed">0</div>
                 <div class="stat-label">Total Closed</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon">🔄</div>
-                <div class="stat-value" id="openTasks">0</div>
-                <div class="stat-label">Open Tasks</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">⚡</div>
-                <div class="stat-value" id="inProgressTasks">0</div>
-                <div class="stat-label">In Progress</div>
-            </div>
         </div>
         
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('available')">🔍 Available Devices</button>
-            <button class="tab-btn" onclick="switchTab('my-tasks')">📝 My Tasks</button>
+            <button class="tab-btn active" onclick="switchTab('available')">🔍 Available Tasks</button>
+            <button class="tab-btn" onclick="switchTab('my-tasks')">📝 Assigned to Me</button>
+            <button class="tab-btn" onclick="switchTab('solved-tasks')">✅ Solved Tasks</button>
             <button class="tab-btn" style="background: #4caf50; color: white; border-color: #4caf50;" onclick="openCreateTaskModal()">➕ Create Task</button>
         </div>
         
@@ -517,6 +524,25 @@
         <div class="task-section" id="my-tasks-section">
             <h2 class="section-title">My Assigned Tasks</h2>
             <div class="device-list" id="myTasksList">
+                <div class="empty-state">
+                    <div class="empty-icon">⏳</div>
+                    <div>Loading...</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="task-section" id="solved-tasks-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 class="section-title" style="margin-bottom: 0;">Solved Tasks</h2>
+                <div style="display: flex; gap: 10px;">
+                    <select id="solvedTasksPeriod" onchange="loadSolvedTasks()" style="padding: 8px 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px;">
+                        <option value="all">All Time</option>
+                        <option value="monthly">This Month</option>
+                        <option value="weekly">This Week</option>
+                    </select>
+                </div>
+            </div>
+            <div class="device-list" id="solvedTasksList">
                 <div class="empty-state">
                     <div class="empty-icon">⏳</div>
                     <div>Loading...</div>
@@ -569,7 +595,7 @@
     </div>
     
     <!-- Reassign Task Modal (Admin Only) -->
-    {% if user.role == 'admin' %}
+    {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
     <div class="modal" id="reassignTaskModal">
         <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
@@ -625,7 +651,7 @@
                         <option value="low">🟢 Low</option>
                     </select>
                 </div>
-                {% if user.role == 'admin' %}
+                {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                 <div class="form-group">
                     <label class="form-label">Assign To</label>
                     <select class="form-input" id="taskAssignUser">
@@ -784,21 +810,28 @@
             loadAvailableDevices();
             loadMyTasks();
             loadDevicesForDropdown();
-            {% if user.role == 'admin' %}
+            {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
             loadUsersForDropdown();
             {% endif %}
             
-            // Check if URL has ?tab=my-tasks parameter to auto-switch to My Tasks tab
+            // Check if URL has tab parameter to auto-switch tabs
             const urlParams = new URLSearchParams(window.location.search);
             const tab = urlParams.get('tab');
             const taskId = urlParams.get('task');
             
             if (tab === 'my-tasks') {
-                // Switch to My Tasks tab
+                // Switch to user's tasks tab
                 document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-                document.querySelectorAll('.tab-btn')[1].classList.add('active'); // Second tab is My Tasks
+                document.querySelectorAll('.tab-btn')[1].classList.add('active'); // Second tab is user's tasks
                 document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
                 document.getElementById('my-tasks-section').classList.add('active');
+            } else if (tab === 'solved-tasks') {
+                // Switch to solved tasks tab
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-btn')[2].classList.add('active'); // Third tab is solved tasks
+                document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
+                document.getElementById('solved-tasks-section').classList.add('active');
+                loadSolvedTasks();
             }
             
             // If task ID is provided, open task details modal
@@ -812,6 +845,7 @@
                 loadStatistics();
                 loadAvailableDevices();
                 loadMyTasks();
+                // Don't auto-refresh solved tasks as they don't change frequently
             }, 30000);
         });
         
@@ -895,7 +929,7 @@ Please investigate and resolve the issue.`;
                 .catch(error => console.error('Error loading devices:', error));
         }
         
-        {% if user.role == 'admin' %}
+        {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
         function loadUsersForDropdown() {
             fetch('/api/users')
                 .then(response => response.json())
@@ -939,7 +973,7 @@ Please investigate and resolve the issue.`;
             
             let assignTo = null;
             let assignToSelf = true;
-            {% if user.role == 'admin' %}
+            {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
             const assignUser = document.getElementById('taskAssignUser').value;
             if (assignUser !== 'self') {
                 assignTo = assignUser;
@@ -992,13 +1026,18 @@ Please investigate and resolve the issue.`;
                 tabButtons[0].classList.add('active');
             } else if (tab === 'my-tasks') {
                 tabButtons[1].classList.add('active');
+            } else if (tab === 'solved-tasks') {
+                tabButtons[2].classList.add('active');
             }
             
             document.querySelectorAll('.task-section').forEach(section => section.classList.remove('active'));
             if (tab === 'available') {
                 document.getElementById('available-section').classList.add('active');
-            } else {
+            } else if (tab === 'my-tasks') {
                 document.getElementById('my-tasks-section').classList.add('active');
+            } else if (tab === 'solved-tasks') {
+                document.getElementById('solved-tasks-section').classList.add('active');
+                loadSolvedTasks(); // Load solved tasks when tab is activated
             }
         }
         
@@ -1008,10 +1047,13 @@ Please investigate and resolve the issue.`;
                 .then(data => {
                     if (data.success) {
                         document.getElementById('monthlyDone').textContent = data.monthly_done;
-                        document.getElementById('avgDuration').textContent = data.avg_duration_hours.toFixed(1) + 'h';
+                        document.getElementById('monthlyAvgTime').textContent = data.monthly_avg_time.toFixed(1) + 'h';
+                        document.getElementById('weeklyDone').textContent = data.weekly_done;
+                        document.getElementById('weeklyAvgTime').textContent = data.weekly_avg_time.toFixed(1) + 'h';
+                        document.getElementById('pendingTasks').textContent = data.pending_tasks;
+                        document.getElementById('pendingAvgDuration').textContent = data.pending_avg_duration.toFixed(1) + 'h';
+                        document.getElementById('availableTasks').textContent = data.available_tasks;
                         document.getElementById('totalClosed').textContent = data.total_closed;
-                        document.getElementById('openTasks').textContent = data.open_tasks;
-                        document.getElementById('inProgressTasks').textContent = data.in_progress_tasks;
                     }
                 })
                 .catch(error => console.error('Error:', error));
@@ -1134,6 +1176,58 @@ Please investigate and resolve the issue.`;
                     });
                 })
                 .catch(error => console.error('Error:', error));
+        }
+        
+        function loadSolvedTasks() {
+            const period = document.getElementById('solvedTasksPeriod').value;
+            
+            fetch(`/api/tasks/solved?period=${period}`)
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('solvedTasksList');
+                    if (!data.success || data.tasks.length === 0) {
+                        let periodText = period === 'weekly' ? 'this week' : period === 'monthly' ? 'this month' : 'all time';
+                        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>No solved tasks ${periodText}</div></div>`;
+                        return;
+                    }
+                    
+                    container.innerHTML = '';
+                    data.tasks.forEach((task, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'device-item';
+                        item.style.cursor = 'pointer';
+                        
+                        // Format resolution time
+                        const resolutionTime = task.resolution_hours > 0 ? `${task.resolution_hours}h` : 'N/A';
+                        
+                        // Format dates
+                        const closedDate = new Date(task.closed_at).toLocaleString();
+                        
+                        item.innerHTML = `
+                            <div class="device-number">${index + 1}</div>
+                            <div class="device-info">
+                                <div class="device-ip">📍 ${task.sm_ip}</div>
+                                <div class="device-name">${task.title}</div>
+                                <div class="device-meta">
+                                    <span>✅ Closed: ${closedDate}</span>
+                                    <span>⏱️ Resolution: ${resolutionTime}</span>
+                                    <span>👤 ${task.assigned_to}</span>
+                                </div>
+                            </div>
+                            <div class="device-actions">
+                                <span class="status-badge status-closed">Solved</span>
+                            </div>
+                        `;
+                        
+                        // Make entire card clickable to open task details
+                        item.onclick = () => openTaskDetailsModal(task.id);
+                        container.appendChild(item);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading solved tasks:', error);
+                    document.getElementById('solvedTasksList').innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>Error loading solved tasks</div></div>`;
+                });
         }
         
         
@@ -1275,7 +1369,7 @@ Please investigate and resolve the issue.`;
                             
                             ${task.status !== 'closed' ? `
                             <div style="text-align: right; margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-                                {% if user.role == 'admin' %}
+                                {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                                 <button class="action-btn" onclick="showReassignModal(${task.id}, '${task.assigned_to}')" style="padding: 12px 24px; font-size: 14px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">🔄 Reassign</button>
                                 {% endif %}
                                 <button class="action-btn btn-close" onclick="closeTaskDirectly(${task.id})" style="padding: 12px 24px; font-size: 14px; background: #4caf50; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✅ Close Task</button>
@@ -1302,7 +1396,7 @@ Please investigate and resolve the issue.`;
             document.getElementById('taskDetailsModal').style.display = 'none';
         }
         
-        // Alias for opening task details modal (called from My Tasks cards)
+        // Alias for opening task details modal (called from task cards)
         function openTaskDetailsModal(taskId) {
             showTaskDetails(taskId);
         }
@@ -1428,7 +1522,7 @@ Please investigate and resolve the issue.`;
                 // Show reassign button for admin, close button for all
                 actionButtons = `
                     <div style="display: flex; gap: 10px; margin-top: 20px;">
-                        {% if user.role == 'admin' %}
+                        {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                         <button onclick="showDeviceReassignModal('${device.sm_ip}', '${device.assigned_to}')" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #ff9800; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">🔄 Reassign</button>
                         {% endif %}
                         <button onclick="closeDeviceDetailsModal()" style="flex: 1; padding: 12px 24px; font-size: 14px; background: #757575; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✖️ Close</button>

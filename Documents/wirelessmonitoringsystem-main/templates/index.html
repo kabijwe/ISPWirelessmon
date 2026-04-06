@@ -233,6 +233,8 @@
         .summary .clickable:hover { color: #1557b0; }
         .status-reachable { color: #006400; font-weight: bold; }
         .status-degraded { color: #ff9800; font-weight: bold; }
+        .status-degraded.high-latency { color: #ff9800; font-weight: bold; }
+        .status-degraded.packet-loss { color: #f44336; font-weight: bold; }
         .status-down { color: #FF0000; font-weight: bold; }
         .status-unknown { color: #777; font-weight: bold; }
         
@@ -704,6 +706,16 @@
                 padding: 2px 6px;
                 border-radius: 10px;
             }
+            .status-degraded.high-latency {
+                background: rgba(255, 152, 0, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            .status-degraded.packet-loss {
+                background: rgba(244, 67, 54, 0.1);
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
             .status-down { 
                 background: rgba(244, 67, 54, 0.1);
                 padding: 2px 6px;
@@ -1064,19 +1076,20 @@
         <div class="main-menu-bar">
             <button class="menu-btn" onclick="refreshNow()">Refresh Now</button>
             <button class="menu-btn btn-clear" onclick="clearFilter()">Clear Filter</button>
-            <a href="/my_tasks" class="menu-btn">📋 My Tasks</a>
-            {% if user.role == 'admin' %}
+            <a href="/my_tasks" class="menu-btn">📋 Tasks</a>
+            <a href="/location_uptime_monitor" class="menu-btn">📍 Location Monitor</a>
+            {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
             <a href="{{ url_for('admin_dashboard') }}" class="menu-btn">🔒 Admin Panel</a>
             {% endif %}
-            <a href="/mobile" class="menu-btn">📱 Mobile View</a>
             <a href="/sla" class="menu-btn">📊 SLA Monitor</a>
+            <a href="/snmp_monitor" class="menu-btn">🔌 SNMP Monitor</a>
             <div class="notification-bell" onclick="toggleNotifications()" title="My Assigned Tasks">
                 🔔
                 <span class="notification-badge" id="notificationBadge" style="display: none;">0</span>
             </div>
             <a href="{{ url_for('profile') }}" class="menu-btn">
                 <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: transparent; border: 2px solid white; color: white; font-weight: bold; font-size: 14px; margin-right: 5px;">{{ user.username[0]|upper }}</span>
-                Profile
+                {{ user.username }}
             </a>
             <a href="{{ url_for('logout') }}" class="menu-btn">🚪 Logout</a>
         </div>
@@ -1084,6 +1097,9 @@
         <!-- Welcome Message Below Menu Bar -->
         <div class="welcome-message-bar">
             Welcome back <strong style="color: #4caf50;">{{ user.username }}</strong> at <span style="color: #4caf50;">{{ user.last_login or 'first login' }}</span>!
+            {% if user.role != 'admin' and user_region_id %}
+            <span style="margin-left: 10px; color: #666;">| Assigned Region: <strong id="userRegionName" style="color: #1a73e8;">Loading...</strong></span>
+            {% endif %}
         </div>
         <div class="summary" id="summary">
             <span>Total Entries: <span id="totalCount" class="clickable" onclick="filterByStatus('All')">0</span></span>
@@ -1097,6 +1113,12 @@
                 <button class="toggle-button" id="togglePopSummary">Hide Location Summary</button>
                 <div class="pop-summary" id="popSummary">
                     <h3>Location Summary</h3>
+                    <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+                        <label for="regionFilter" style="font-weight: bold;">Filter by Region:</label>
+                        <select id="regionFilter" onchange="filterByRegion()" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 150px;">
+                            <option value="">All Regions</option>
+                        </select>
+                    </div>
                     <table id="popTable">
                         <thead>
                             <tr>
@@ -1191,7 +1213,7 @@
                     <button class="ack-btn assign" onclick="acknowledgeDevice('assigned')">
                         Assign to Me
                     </button>
-                    {% if user.role == 'admin' %}
+                    {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
                     <button class="ack-btn assign-other" onclick="showAssignModal()">
                         Assign to User
                     </button>
@@ -1229,7 +1251,7 @@
     </div>
     
     <!-- Assignment Modal (Admin Only) -->
-    {% if user.role == 'admin' %}
+    {% if user.role in ['admin', 'superadmin', 'regional_admin'] %}
     <div id="assignModal" class="device-details-modal" style="display: none;">
         <div class="device-details-content">
             <div class="device-details-header">
@@ -1293,7 +1315,7 @@
         const ALERT_UPDATE_INTERVAL = 3000;
         let downtimeData = [];
         let downtimeChart = null;
-        const HIGH_LATENCY_THRESHOLD = 90;
+        const HIGH_LATENCY_THRESHOLD = 200;
         const MAX_REASONABLE_DURATION = 24 * 3600;
 
         const socket = io.connect('http://' + document.domain + ':' + location.port, {
@@ -1308,6 +1330,10 @@
             console.log('WebSocket connected');
             document.getElementById('spinner').style.display = 'none';
             startAlertQueueProcessor();
+            
+            // Load cached results immediately for faster page load
+            loadCachedResults();
+            
             socket.emit('refresh_now');
             socket.emit('refresh_alerts');
             
@@ -1324,6 +1350,26 @@
                 }, 1000);
             }
         });
+        
+        function loadCachedResults() {
+            console.log('Loading cached results...');
+            fetch('/api/cached_results', { credentials: 'include' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Loaded cached results:', data.results.length, 'devices');
+                        fullData = data.results;
+                        updateTable(data.results);
+                        updateSummary(data.results);
+                        updatePopSummary(data.pop_summary);
+                    } else {
+                        console.log('No cached results:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading cached results:', error);
+                });
+        }
 
         socket.on('update_status', function(data) {
             console.log('Received update_status:', data);
@@ -1332,6 +1378,13 @@
                 updateTable(data.results);
                 updateSummary(data.results);
                 updatePopSummary(data.pop_summary);
+                
+                // Apply region filter if user has a region assigned
+                if (userRole !== 'admin' && userRegionId && selectedRegionId) {
+                    console.log('Applying region filter after update:', selectedRegionId);
+                    filterByRegion();
+                }
+                
                 document.getElementById('spinner').style.display = 'none';
                 timeLeft = 10;
                 document.getElementById('countdown').innerHTML = `Next update in ${timeLeft} seconds`;
@@ -1508,7 +1561,7 @@
     }
     const url = `/admin/location_health?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
     try {
-        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const response = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'include' });
         if (!response.ok) {
             throw new Error(`Failed to fetch downtime data: ${response.statusText}`);
         }
@@ -1881,7 +1934,7 @@
             
             // Load device details
             console.log('Fetching device details for IP:', ip);
-            fetch(`/api/device_details/${ip}`)
+            fetch(`/api/device_details/${ip}`, { credentials: 'include' })
                 .then(response => {
                     console.log('Device details response status:', response.status);
                     return response.json();
@@ -1933,18 +1986,35 @@
                 deviceInfoGrid.innerHTML = '<div style="text-align: center; padding: 20px;">Loading task history...</div>';
             }
             
-            // Hide Assignment, Comments, and History sections
+            // Hide Assignment, Comments, and History sections, but show ping buttons
             const ackSection = document.getElementById('ackSection');
             const commentsSection = document.getElementById('commentsSection');
             const historySection = document.getElementById('historySection');
             
-            if (ackSection) ackSection.style.display = 'none';
+            if (ackSection) {
+                // Show only the ping buttons in task history view
+                ackSection.style.display = 'block';
+                const ackStatus = ackSection.querySelector('.ack-status');
+                const ackInfo = ackSection.querySelector('#ackInfo');
+                const ackButtons = ackSection.querySelectorAll('.ack-btn:not(.force-ping)');
+                
+                if (ackStatus) ackStatus.style.display = 'none';
+                if (ackInfo) ackInfo.style.display = 'none';
+                ackButtons.forEach(btn => btn.style.display = 'none');
+                
+                // Update section title
+                const ackTitle = ackSection.querySelector('h4');
+                if (ackTitle) ackTitle.textContent = 'Manual Ping Test';
+            }
             if (commentsSection) commentsSection.style.display = 'none';
             if (historySection) historySection.style.display = 'none'; // Hide history section
             
+            // Store current device IP for ping functions
+            currentDeviceIp = ip;
+            
             console.log('Fetching task history from API...');
             // Load task history
-            fetch(`/api/device_task_history/${ip}`)
+            fetch(`/api/device_task_history/${ip}`, { credentials: 'include' })
                 .then(response => {
                     console.log('Task history response status:', response.status);
                     return response.json();
@@ -1957,7 +2027,7 @@
                         return;
                     }
                     
-                    displayTaskHistory(data.tasks, data.total_count, ip, deviceName);
+                    displayTaskHistory(data.tasks, data.total_count, ip, deviceName, data.ping_tests || []);
                 })
                 .catch(error => {
                     console.error('Error loading task history:', error);
@@ -1966,7 +2036,7 @@
                 });
         }
 
-        function displayTaskHistory(tasks, totalCount, ip, deviceName) {
+        function displayTaskHistory(tasks, totalCount, ip, deviceName, pingTests) {
             const grid = document.getElementById('deviceInfoGrid');
             
             let html = `
@@ -1993,7 +2063,7 @@
             if (tasks.length === 0) {
                 html += '<div style="text-align: center; padding: 40px; color: #999;">No tasks have been created for this device yet.</div>';
             } else {
-                html += '<div style="background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">';
+                html += '<div style="background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0; margin-bottom: 20px;">';
                 
                 tasks.forEach((task, index) => {
                     const statusColors = {
@@ -2033,6 +2103,40 @@
                 html += '</div>';
             }
             
+            // Add Manual Ping Test section at the bottom
+            if (pingTests && pingTests.length > 0) {
+                html += `
+                    <div style="background: #f5f7fa; padding: 20px; border-radius: 8px; margin-top: 20px;">
+                        <h3 style="margin: 0 0 15px 0; color: #333;">🔍 Manual Ping Test History</h3>
+                        <div style="background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e0e0e0;">
+                `;
+                
+                pingTests.forEach((test, index) => {
+                    // Parse the comment to extract status
+                    const isReachable = test.comment.includes('Reachable');
+                    const isDegraded = test.comment.includes('Degraded');
+                    const statusIcon = isReachable ? '✅' : isDegraded ? '⚠️' : '❌';
+                    const statusColor = isReachable ? '#4caf50' : isDegraded ? '#ff9800' : '#f44336';
+                    
+                    html += `
+                        <div style="padding: 12px 15px; border-bottom: ${index < pingTests.length - 1 ? '1px solid #f0f0f0' : 'none'};">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+                                <span style="font-size: 18px;">${statusIcon}</span>
+                                <span style="color: ${statusColor}; font-weight: bold; font-size: 13px;">${test.comment}</span>
+                            </div>
+                            <div style="color: #999; font-size: 11px; margin-left: 28px;">
+                                📅 ${test.timestamp}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+            
             html += '</div>'; // Close the grid-column wrapper
             
             grid.innerHTML = html;
@@ -2046,7 +2150,7 @@
             grid.innerHTML = '<div style="text-align: center; padding: 40px;">Loading task details...</div>';
             
             // Fetch task details
-            fetch(`/api/task/${taskId}`)
+            fetch(`/api/task/${taskId}`, { credentials: 'include' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -2193,9 +2297,15 @@
         }
 
         function populateAckStatus(acknowledgment) {
+            const ackSection = document.getElementById('ackSection');
             const badge = document.getElementById('ackBadge');
             const info = document.getElementById('ackInfo');
             const details = document.getElementById('ackDetails');
+            
+            // Hide the entire ack section in device details view
+            if (ackSection) {
+                ackSection.style.display = 'none';
+            }
             
             badge.className = `ack-badge ${acknowledgment.status}`;
             badge.textContent = acknowledgment.status.charAt(0).toUpperCase() + acknowledgment.status.slice(1);
@@ -2286,6 +2396,7 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     ip: currentDeviceIp,
                     comment: comment
@@ -2354,6 +2465,7 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     ip: currentDeviceIp,
                     status: status,
@@ -2475,6 +2587,7 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     device_ip: currentAssignDeviceIp,
                     user_id: parseInt(userId),
@@ -2504,20 +2617,20 @@
         
         function forcePing() {
             if (!currentDeviceIp) {
-                alert('No device selected');
+                showCustomAlert('No device selected');
                 return;
             }
             
-            if (!confirm(`Perform manual ping test on SM IP ${currentDeviceIp}?`)) {
-                return;
-            }
-            
-            performPing(currentDeviceIp, 'SM');
+            showCustomConfirm(`Perform manual ping test on SM IP ${currentDeviceIp}?`, (confirmed) => {
+                if (confirmed) {
+                    performPing(currentDeviceIp, 'SM');
+                }
+            });
         }
         
         function forcePingAP() {
             if (!currentDeviceIp) {
-                alert('No device selected');
+                showCustomAlert('No device selected');
                 return;
             }
             
@@ -2531,15 +2644,15 @@
             }
             
             if (!apIp || apIp === 'N/A') {
-                alert('AP IP not available for this device');
+                showCustomAlert('AP IP not available for this device');
                 return;
             }
             
-            if (!confirm(`Perform manual ping test on AP IP ${apIp}?`)) {
-                return;
-            }
-            
-            performPing(apIp, 'AP');
+            showCustomConfirm(`Perform manual ping test on AP IP ${apIp}?`, (confirmed) => {
+                if (confirmed) {
+                    performPing(apIp, 'AP');
+                }
+            });
         }
         
         function performPing(ip, type) {
@@ -2559,9 +2672,11 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
                 body: JSON.stringify({
                     ip: ip,
-                    ping_type: type
+                    ping_type: type,
+                    sm_ip: currentDeviceIp  // Send the SM IP for comment association
                 })
             })
             .then(response => {
@@ -2570,33 +2685,71 @@
             })
             .then(data => {
                 console.log('Force ping response data:', data);
-                if (data.success) {
-                    // Show result in a more detailed alert
-                    const statusColor = data.status === 'Reachable' ? '✅' : 
-                                       data.status === 'Degraded' ? '⚠️' : '❌';
-                    
-                    alert(`${statusColor} Manual ${type} Ping Result:\n\n` +
-                          `${type} IP: ${ip}\n` +
-                          `Status: ${data.status}\n` +
-                          `Latency: ${data.latency}\n` +
-                          `Time: ${data.timestamp}\n\n` +
-                          `This result has been logged and added to device comments.`);
-                    
-                    // Refresh device details to show updated information
-                    showDeviceDetails(currentDeviceIp);
-                } else {
-                    alert(`${type} ping failed: ` + data.error);
-                }
-            })
-            .catch(error => {
-                console.error('Error performing force ping:', error);
-                alert(`Failed to perform ${type} ping. Please check your connection.`);
-            })
-            .finally(() => {
+                
+                // Re-enable buttons first
                 buttons.forEach((btn, index) => {
                     btn.textContent = originalTexts[index];
                     btn.disabled = false;
                 });
+                
+                if (data.success) {
+                    // Show result immediately with status icon
+                    const statusIcon = data.status === 'Reachable' ? '✅' : 
+                                       data.status === 'Degraded' ? '⚠️' : '❌';
+                    const statusColor = data.status === 'Reachable' ? '#4caf50' : 
+                                       data.status === 'Degraded' ? '#ff9800' : '#f44336';
+                    
+                    console.log('Showing result modal with status:', data.status);
+                    
+                    showCustomAlert(
+                        `<div style="text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">${statusIcon}</div>
+                            <div style="font-size: 18px; font-weight: bold; color: ${statusColor}; margin-bottom: 10px;">
+                                ${data.status}
+                            </div>
+                            <div style="color: #666; font-size: 14px; line-height: 1.6;">
+                                <strong>${type} IP:</strong> ${ip}<br>
+                                <strong>Latency:</strong> ${data.latency}<br>
+                                <strong>Time:</strong> ${data.timestamp}
+                            </div>
+                            <div style="margin-top: 15px; padding: 10px; background: #f5f7fa; border-radius: 6px; font-size: 12px; color: #666;">
+                                Result logged and added to device history
+                            </div>
+                        </div>`
+                    );
+                    
+                    // Immediately reload task history to show the new comment
+                    setTimeout(() => {
+                        const titleElement = document.getElementById('deviceDetailsTitle');
+                        if (titleElement) {
+                            const titleText = titleElement.textContent;
+                            const deviceName = titleText.replace('Task History - ', '').split(' (')[0];
+                            showTaskHistory(currentDeviceIp, deviceName);
+                        }
+                    }, 1000);
+                } else {
+                    console.log('Ping failed with error:', data.error);
+                    showCustomAlert(`<div style="text-align: center; color: #f44336;">
+                        <div style="font-size: 48px; margin-bottom: 15px;">❌</div>
+                        <div style="font-size: 16px; font-weight: bold;">Ping Failed</div>
+                        <div style="margin-top: 10px; color: #666;">${data.error || 'Unknown error'}</div>
+                    </div>`);
+                }
+            })
+            .catch(error => {
+                console.error('Error performing force ping:', error);
+                
+                // Re-enable buttons
+                buttons.forEach((btn, index) => {
+                    btn.textContent = originalTexts[index];
+                    btn.disabled = false;
+                });
+                
+                showCustomAlert(`<div style="text-align: center; color: #f44336;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">❌</div>
+                    <div style="font-size: 16px; font-weight: bold;">Connection Error</div>
+                    <div style="margin-top: 10px; color: #666;">Failed to perform ${type} ping. Please check your connection.</div>
+                </div>`);
             });
         }
 
@@ -2630,7 +2783,20 @@
             const table = document.getElementById('pingTable');
             table.innerHTML = '';
             
-            data.forEach(row => {
+            // Apply region filter if active
+            let filteredData = data;
+            if (selectedRegionId) {
+                const locationsInRegion = getLocationsInRegion(selectedRegionId);
+                if (locationsInRegion) {
+                    // Trim location names for comparison
+                    filteredData = data.filter(row => {
+                        const deviceLocation = (row['Location'] || '').trim();
+                        return locationsInRegion.some(loc => loc.trim() === deviceLocation);
+                    });
+                }
+            }
+            
+            filteredData.forEach(row => {
                 const tr = document.createElement('tr');
                 
                 const fields = [
@@ -2651,7 +2817,22 @@
                         td.className = 'non-clickable';
                         td.onclick = (e) => e.stopPropagation();
                     }
-                    if (index === 6) td.className = `status-${content.toLowerCase()}`;
+                    if (index === 6) {
+                        // Status column - keep as degraded
+                        td.className = `status-${content.toLowerCase()}`;
+                    }
+                    if (index === 7) {
+                        // Latency column - color based on issue type
+                        if (row['Status'] === 'Degraded' && row['Issue Type']) {
+                            if (row['Issue Type'] === 'packet_loss') {
+                                td.style.color = '#f44336';  // Red for packet loss
+                                td.style.fontWeight = 'bold';
+                            } else if (row['Issue Type'] === 'high_latency') {
+                                td.style.color = '#ff9800';  // Yellow for high latency
+                                td.style.fontWeight = 'bold';
+                            }
+                        }
+                    }
                     tr.appendChild(td);
                 });
                 
@@ -2677,27 +2858,47 @@
                 
                 table.appendChild(tr);
             });
+            
+            // Apply active filters after table update
             if (activeFilter) {
+                console.log('Reapplying active filter:', activeFilter);
                 if (activeFilter.location) {
                     filterByLocationStatus(activeFilter.location, activeFilter.status);
-                } else {
+                } else if (activeFilter.status) {
                     filterByStatus(activeFilter.status);
                 }
             } else {
-                filterTable();
+                // Only apply search filter if no status/location filter is active
+                const searchInput = document.getElementById('searchInput').value;
+                if (searchInput) {
+                    filterTable();
+                }
             }
             console.log(`Updated main table with ${data.length} rows`);
         }
 
         function updateSummary(data) {
+            // Apply region filter if active
+            let filteredData = data;
+            if (selectedRegionId) {
+                const locationsInRegion = getLocationsInRegion(selectedRegionId);
+                if (locationsInRegion) {
+                    // Trim location names for comparison
+                    filteredData = data.filter(row => {
+                        const deviceLocation = (row['Location'] || '').trim();
+                        return locationsInRegion.some(loc => loc.trim() === deviceLocation);
+                    });
+                }
+            }
+            
             const counts = { Reachable: 0, Degraded: 0, Down: 0, Unknown: 0 };
-            data.forEach(row => counts[row['Status']] = (counts[row['Status']] || 0) + 1);
-            document.getElementById('totalCount').textContent = data.length;
+            filteredData.forEach(row => counts[row['Status']] = (counts[row['Status']] || 0) + 1);
+            document.getElementById('totalCount').textContent = filteredData.length;
             document.getElementById('reachableCount').textContent = counts.Reachable;
             document.getElementById('degradedCount').textContent = counts.Degraded;
             document.getElementById('downCount').textContent = counts.Down;
             document.getElementById('unknownCount').textContent = counts.Unknown;
-            console.log('Updated summary counts:', counts);
+            console.log('Updated summary counts:', counts, 'Region filter:', selectedRegionId || 'All');
         }
 
         function updatePopSummary(popData) {
@@ -2708,12 +2909,7 @@
                 return;
             }
             
-            if (!popData || Object.keys(popData).length === 0) {
-                console.warn('No pop summary data available, keeping existing table');
-                return; // Don't clear the table if no data
-            }
-            
-            // Get existing rows
+            // Get existing rows to preserve them
             const existingRows = Array.from(table.getElementsByTagName('tr'));
             const existingLocations = new Map();
             
@@ -2724,6 +2920,17 @@
                     existingLocations.set(locationCell.textContent, row);
                 }
             });
+            
+            // If no new data, just reset all counts to 0 but keep locations visible
+            if (!popData || Object.keys(popData).length === 0) {
+                console.warn('No pop summary data, resetting counts to 0 but keeping locations');
+                existingRows.forEach(row => {
+                    if (row.cells[1]) row.cells[1].textContent = '0';
+                    if (row.cells[2]) row.cells[2].textContent = '0';
+                    if (row.cells[3]) row.cells[3].textContent = '0';
+                });
+                return;
+            }
             
             // Get sorted locations from new data
             const sortedLocations = Object.keys(popData).sort();
@@ -2765,17 +2972,16 @@
                 }
             });
             
-            // Only remove rows for locations that no longer exist in the data
-            // But be conservative - only remove if we have substantial new data
-            if (sortedLocations.length > 0) {
-                existingLocations.forEach(row => {
-                    if (row.parentNode) {
-                        row.parentNode.removeChild(row);
-                    }
-                });
-            }
+            // For locations that exist in table but not in new data, set counts to 0
+            // Don't remove them - just show 0/0/0
+            existingLocations.forEach((row, location) => {
+                if (row.cells[1]) row.cells[1].textContent = '0';
+                if (row.cells[2]) row.cells[2].textContent = '0';
+                if (row.cells[3]) row.cells[3].textContent = '0';
+                console.log(`Location "${location}" not in new data, showing 0/0/0`);
+            });
             
-            console.log(`Updated pop summary: ${sortedLocations.length} locations, ${existingRows.length} existing rows`);
+            console.log(`Updated pop summary: ${sortedLocations.length} locations with data, ${existingLocations.size} locations set to 0/0/0`);
         }
 
         function createAlertElement(alert, isHistory = false) {
@@ -2823,7 +3029,13 @@
                     if (isHighLatency) statusText += ` with High Latency`;
                     message += `<span class="alert-reachable">${statusText}</span> (${baseFields}, Reachable since: <span style="color: #006400; font-weight: bold;">${formatTimestamp(entry.uptime_since)}</span>, Duration: <span style="color: #006400; font-weight: bold;">${uptimeDuration}</span>)`;
                 } else if (entry.status === "Degraded") {
-                    message += `<span class="alert-degraded">SM IP ${entry.ip || 'N/A'} is Degraded</span> (${baseFields}, Reachable since: <span style="color: #ff9800; font-weight: bold;">${formatTimestamp(entry.uptime_since)}</span>, Duration: <span style="color: #ff9800; font-weight: bold;">${uptimeDuration}</span>)`;
+                    let degradedReason = "Degraded";
+                    if (entry.issue_type === "packet_loss") {
+                        degradedReason = "Degraded - Packet Loss";
+                    } else if (entry.issue_type === "high_latency") {
+                        degradedReason = "Degraded - High Latency";
+                    }
+                    message += `<span class="alert-degraded">${degradedReason} for SM IP ${entry.ip || 'N/A'}</span> (${baseFields}, Reachable since: <span style="color: #ff9800; font-weight: bold;">${formatTimestamp(entry.uptime_since)}</span>, Duration: <span style="color: #ff9800; font-weight: bold;">${uptimeDuration}</span>)`;
                 }
                 div.innerHTML = message;
                 console.log('Rendering alert:', message);
@@ -2840,7 +3052,24 @@
                 console.error('Alert log container not found');
                 return;
             }
-            newAlerts.forEach(alert => {
+            
+            // Apply region filter to new alerts
+            let filteredAlerts = newAlerts;
+            if (selectedRegionId) {
+                const locationsInRegion = getLocationsInRegion(selectedRegionId);
+                if (locationsInRegion) {
+                    filteredAlerts = newAlerts.filter(alert => {
+                        const alertLocation = (alert.entry?.location || '').trim();
+                        const isInRegion = locationsInRegion.some(loc => loc.trim() === alertLocation);
+                        if (!isInRegion) {
+                            console.log(`Filtered out alert for ${alert.entry.ip} - location "${alertLocation}" not in selected region`);
+                        }
+                        return isInRegion;
+                    });
+                }
+            }
+            
+            filteredAlerts.forEach(alert => {
                 const alertElement = createAlertElement(alert);
                 if (alertElement) {
                     log.insertBefore(alertElement, log.firstChild);
@@ -2853,6 +3082,10 @@
                 log.removeChild(removed);
             }
             log.scrollTop = 0;
+            
+            if (filteredAlerts.length < newAlerts.length) {
+                console.log(`Filtered ${newAlerts.length - filteredAlerts.length} alerts not in selected region`);
+            }
         }
 
         function updateAlertLog(alerts, fullUpdate = false) {
@@ -2861,16 +3094,29 @@
                 console.error('Alert log container not found');
                 return;
             }
+            
+            // Apply region filter to alerts
+            let filteredAlerts = alerts;
+            if (selectedRegionId) {
+                const locationsInRegion = getLocationsInRegion(selectedRegionId);
+                if (locationsInRegion) {
+                    filteredAlerts = alerts.filter(alert => {
+                        const alertLocation = (alert.entry?.location || '').trim();
+                        return locationsInRegion.some(loc => loc.trim() === alertLocation);
+                    });
+                }
+            }
+            
             if (fullUpdate) {
                 log.innerHTML = '';
-                alerts.sort((a, b) => new Date(b.time) - new Date(a.time));
-                alerts.forEach(alert => {
+                filteredAlerts.sort((a, b) => new Date(b.time) - new Date(a.time));
+                filteredAlerts.forEach(alert => {
                     const alertElement = createAlertElement(alert);
                     if (alertElement) log.appendChild(alertElement);
                 });
             }
             log.scrollTop = 0;
-            console.log(`Updated alert log with ${alerts.length} alerts`);
+            console.log(`Updated alert log with ${filteredAlerts.length} alerts (filtered from ${alerts.length})`);
         }
 
         function exportAlertLog() {
@@ -3003,7 +3249,7 @@ function exportIpHistory(format) {
     const queryParams = new URLSearchParams({ ip: ipInput, include_summary: 'true' });
     if (dateInput) queryParams.append('date', dateInput);
     if (hourInput) queryParams.append('hour', hourInput);
-    fetch(`/get_logs?${queryParams.toString()}`)
+    fetch(`/get_logs?${queryParams.toString()}`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) {
                 return response.json().then(err => {
@@ -3042,35 +3288,71 @@ function exportIpHistory(format) {
                         location: entry.location || 'N/A',
                         apName: entry.ap_name || 'N/A',
                         apIp: entry.ap_ip || 'N/A',
+                        cid: entry.cid || 'N/A',
                         smName: entry.org_name || 'N/A',
                         smMac: entry.sm_mac || 'N/A',
                         latencies: [],
                         downEvents: [],
                         degradedEvents: [],
                         durations: { Reachable: 0, Degraded: 0, Down: 0 },
-                        logTimes: []
+                        logTimes: [],
+                        statusHistory: []
                     };
                 }
                 if (entry.status === 'Error' || entry.status === 'Timeout') return;
                 const logTime = new Date(log.time);
                 if (isNaN(logTime.getTime())) return;
                 summaryByIp[ip].logTimes.push(logTime);
+                summaryByIp[ip].statusHistory.push({ time: logTime, status: entry.status });
                 if (entry.latency && !isNaN(entry.latency)) summaryByIp[ip].latencies.push(entry.latency);
             });
 
-            // Hard-code downtimes and missing logs since logs are not provided
+            // Calculate actual down and degraded events from logs
             const exportDate = dateInput || '2025-05-09';
             Object.keys(summaryByIp).forEach(ip => {
                 const summary = summaryByIp[ip];
-                summary.downEvents = [
-                    { start: new Date('2025-05-10T11:50:51'), end: new Date('2025-05-10T11:53:08') },
-                    { start: new Date('2025-05-10T12:40:13'), end: new Date('2025-05-10T13:38:59') },
-                    { start: new Date('2025-05-10T14:12:43'), end: new Date('2025-05-10T14:36:46') }
-                ];
-                summary.durations.Down = 137 + 3526 + 1443; // 5106s = 01:25:06
+                const statusHistory = summary.statusHistory.sort((a, b) => a.time - b.time);
+                
+                // Find down and degraded events
+                let currentStatus = null;
+                let eventStart = null;
+                
+                statusHistory.forEach((entry, index) => {
+                    if (entry.status === 'Down' && currentStatus !== 'Down') {
+                        // Start of down event
+                        eventStart = entry.time;
+                        currentStatus = 'Down';
+                    } else if (entry.status !== 'Down' && currentStatus === 'Down') {
+                        // End of down event
+                        if (eventStart) {
+                            summary.downEvents.push({ start: eventStart, end: entry.time });
+                        }
+                        currentStatus = null;
+                    }
+                    
+                    if (entry.status === 'Degraded' && currentStatus !== 'Degraded') {
+                        // Start of degraded event
+                        eventStart = entry.time;
+                        currentStatus = 'Degraded';
+                    } else if (entry.status !== 'Degraded' && currentStatus === 'Degraded') {
+                        // End of degraded event
+                        if (eventStart) {
+                            summary.degradedEvents.push({ start: eventStart, end: entry.time });
+                        }
+                        currentStatus = null;
+                    }
+                });
+                
+                // If still in a down/degraded state at the end, close it
+                if (currentStatus === 'Down' && eventStart) {
+                    summary.downEvents.push({ start: eventStart, end: statusHistory[statusHistory.length - 1].time });
+                }
+                if (currentStatus === 'Degraded' && eventStart) {
+                    summary.degradedEvents.push({ start: eventStart, end: statusHistory[statusHistory.length - 1].time });
+                }
             });
 
-            // Prepare summary data
+            // Prepare summary data with clean, professional formatting
             const summaryData = [];
             Object.keys(summaryByIp).forEach(ip => {
                 const summary = summaryByIp[ip];
@@ -3082,68 +3364,75 @@ function exportIpHistory(format) {
                 const uptimePercent = totalTime > 0 ? ((totalUptime / totalTime) * 100).toFixed(2) + '%' : '72.63%';
                 const downtimePercent = summary.durations.Down > 0 ? ((summary.durations.Down / totalTime) * 100).toFixed(2) + '%' : '27.37%';
 
-                // Header and title rows
-                summaryData.push({ A: 'WorldLink Communications Ltd.' });
-                summaryData.push({ A: 'IP Data Records Generated by the System' });
-                summaryData.push({ A: `Summary: IP ${ip}, Device ${summary.deviceName}, Location ${summary.location}, AP Name ${summary.apName}, Date ${exportDate}` });
-                summaryData.push({ A: '------------------------------------------' });
-                summaryData.push({ A: `Log Generated time from ${exportDate} to ${exportDate}` });
-                summaryData.push({ A: '------------------------------------------' });
-                summaryData.push({ A: 'Summary of the IP Details' });
-
-                // Data rows
-                summaryData.push({ A: 'Uptime', B: `Duration: ${formatSeconds(totalUptime)}, Best Latency: ${overallBestLatency}, Worst Latency: ${overallWorstLatency}` });
-                summaryData.push({ A: 'Total Down Duration', B: formatSeconds(summary.durations.Down) });
-                summaryData.push({ A: 'Total Up Duration', B: formatSeconds(totalUptime) });
-                summaryData.push({ A: 'Average Latency', B: avgLatency });
-                summaryData.push({ A: 'Average Worst Latency', B: overallWorstLatency });
-                summaryData.push({ A: 'Average Best Latency', B: overallBestLatency });
-                summaryData.push({ A: 'AP IP', B: summary.apIp });
-                summaryData.push({ A: 'SM Name', B: summary.smName });
-                summaryData.push({ A: 'SM MAC', B: summary.smMac });
-                summaryData.push({ A: 'Overall Best Latency', B: overallBestLatency });
-                summaryData.push({ A: 'Overall Worst Latency', B: overallWorstLatency });
-                summaryData.push({ A: 'Uptime %', B: uptimePercent });
-                summaryData.push({ A: 'Downtime %', B: downtimePercent });
-                summaryData.push({ A: 'Log Count', B: '2288' });
-
-                // Total Downs
-                summaryData.push({ A: 'Total Downs', B: `${summary.downEvents.length} event(s)` });
-                summaryData.push({ A: '', B: 'Status', C: 'Date', D: 'Time', E: 'to', F: 'Date', G: 'Time', H: 'Duration' });
-                summary.downEvents.forEach(event => {
-                    const startDate = formatTimestamp(event.start).split(', ')[0];
-                    const startTime = formatTimestamp(event.start).split(', ')[1];
-                    const endDate = formatTimestamp(event.end).split(', ')[0];
-                    const endTime = formatTimestamp(event.end).split(', ')[1];
-                    const duration = formatDuration(event.end, event.start);
-                    summaryData.push({ A: '', B: 'Down at', C: startDate, D: startTime, E: 'to', F: endDate, G: endTime, H: duration });
-                });
-
-                // Degraded
-                summaryData.push({ A: 'Degraded', B: '0 event(s), No degraded events' });
-                summaryData.push({ A: '', B: 'Status', C: 'Date', D: 'Time', E: 'to', F: 'Date', G: 'Time', H: 'Duration' });
-
-                // Missing Logs
-                const missingPeriods = [
-                    { duration: 54064, start: new Date('2025-05-08T19:05:47'), end: new Date('2025-05-09T10:06:51') },
-                    { duration: 1963, start: new Date('2025-05-09T13:31:55'), end: new Date('2025-05-09T14:04:38') },
-                    { duration: 112, start: new Date('2025-05-09T16:40:23'), end: new Date('2025-05-09T16:42:15') },
-                    { duration: 34210, start: new Date('2025-05-10T00:00:00'), end: new Date('2025-05-10T09:30:10') }
-                ];
-                summaryData.push({ A: 'Missing Logs', B: `${missingPeriods.length} period(s)` });
-                summaryData.push({ A: '', B: 'Status', C: 'Duration', D: 'Date', E: 'Time', F: 'to', G: 'Date', H: 'Time' });
-                missingPeriods.forEach(period => {
-                    const startDate = formatTimestamp(period.start).split(', ')[0];
-                    const startTime = formatTimestamp(period.start).split(', ')[1];
-                    const endDate = formatTimestamp(period.end).split(', ')[0];
-                    const endTime = formatTimestamp(period.end).split(', ')[1];
-                    const duration = formatSeconds(period.duration);
-                    summaryData.push({ A: '', B: 'Missed Log', C: duration, D: startDate, E: startTime, F: 'to', G: endDate, H: endTime });
-                });
-
-                // Empty row and footer
+                // ===== HEADER =====
+                summaryData.push({ A: 'WORLDLINK COMMUNICATIONS LTD.' });
+                summaryData.push({ A: 'IP Performance & Availability Report' });
                 summaryData.push({ A: '' });
-                summaryData.push({ A: 'This is the summary report of the inserted IP address, generated by WorldLink Communications Ltd., developed by Bikram Niroula' });
+                
+                // ===== DEVICE INFO =====
+                summaryData.push({ A: 'DEVICE INFORMATION' });
+                summaryData.push({ A: 'IP Address', B: ip });
+                summaryData.push({ A: 'Device Name', B: summary.deviceName });
+                summaryData.push({ A: 'Location', B: summary.location });
+                summaryData.push({ A: 'Access Point', B: summary.apName });
+                summaryData.push({ A: 'AP IP Address', B: summary.apIp });
+                summaryData.push({ A: 'CID', B: summary.cid });
+                summaryData.push({ A: 'Report Date', B: exportDate });
+                summaryData.push({ A: '' });
+                
+                // ===== KEY METRICS =====
+                summaryData.push({ A: 'KEY PERFORMANCE METRICS' });
+                summaryData.push({ A: 'Uptime Percentage', B: uptimePercent });
+                summaryData.push({ A: 'Downtime Percentage', B: downtimePercent });
+                summaryData.push({ A: 'Total Uptime Duration', B: formatSeconds(totalUptime) });
+                summaryData.push({ A: 'Total Downtime Duration', B: formatSeconds(summary.durations.Down) });
+                summaryData.push({ A: '' });
+                
+                // ===== LATENCY METRICS =====
+                summaryData.push({ A: 'LATENCY METRICS' });
+                summaryData.push({ A: 'Average Latency', B: avgLatency });
+                summaryData.push({ A: 'Best Latency', B: overallBestLatency });
+                summaryData.push({ A: 'Worst Latency', B: overallWorstLatency });
+                summaryData.push({ A: 'Total Log Entries', B: '2288' });
+                summaryData.push({ A: '' });
+                
+                // ===== DOWN EVENTS =====
+                summaryData.push({ A: 'DOWN EVENTS', B: `Total: ${summary.downEvents.length} event(s)` });
+                if (summary.downEvents.length > 0) {
+                    summaryData.push({ A: 'Event #', B: 'Start Date', C: 'Start Time', D: 'End Date', E: 'End Time', F: 'Duration' });
+                    summary.downEvents.forEach((event, index) => {
+                        const startDate = formatTimestamp(event.start).split(', ')[0];
+                        const startTime = formatTimestamp(event.start).split(', ')[1];
+                        const endDate = formatTimestamp(event.end).split(', ')[0];
+                        const endTime = formatTimestamp(event.end).split(', ')[1];
+                        const duration = formatDuration(event.end, event.start);
+                        summaryData.push({ A: index + 1, B: startDate, C: startTime, D: endDate, E: endTime, F: duration });
+                    });
+                } else {
+                    summaryData.push({ A: 'No down events recorded' });
+                }
+                summaryData.push({ A: '' });
+                
+                // ===== DEGRADED EVENTS =====
+                summaryData.push({ A: 'DEGRADED EVENTS', B: `Total: ${summary.degradedEvents.length} event(s)` });
+                if (summary.degradedEvents.length > 0) {
+                    summaryData.push({ A: 'Event #', B: 'Start Date', C: 'Start Time', D: 'End Date', E: 'End Time', F: 'Duration' });
+                    summary.degradedEvents.forEach((event, index) => {
+                        const startDate = formatTimestamp(event.start).split(', ')[0];
+                        const startTime = formatTimestamp(event.start).split(', ')[1];
+                        const endDate = formatTimestamp(event.end).split(', ')[0];
+                        const endTime = formatTimestamp(event.end).split(', ')[1];
+                        const duration = formatDuration(event.end, event.start);
+                        summaryData.push({ A: index + 1, B: startDate, C: startTime, D: endDate, E: endTime, F: duration });
+                    });
+                } else {
+                    summaryData.push({ A: 'No degraded events recorded' });
+                }
+                summaryData.push({ A: '' });
+                
+                // ===== FOOTER =====
+                summaryData.push({ A: 'Report Generated By: Wireless Monitoring System' });
+                summaryData.push({ A: `Generated On: ${new Date().toLocaleString()}` });
             });
 
             // Prepare metadata
@@ -3188,42 +3477,54 @@ function exportIpHistory(format) {
             const metadataWs = XLSX.utils.json_to_sheet(metadata);
             const summaryWs = XLSX.utils.json_to_sheet(summaryData, { header: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] });
 
-            // Apply styling to summary sheet
-            const statusColors = {
-                'Total Downs': 'FF0000',
-                'Degraded': 'FF9800',
-                'Uptime': '006400',
-                'Missing Logs': '777777'
-            };
-            const statusLabels = ['Total Downs', 'Degraded', 'Uptime', 'Missing Logs'];
+            // Apply professional styling to summary sheet
             const range = XLSX.utils.decode_range(summaryWs['!ref']);
+            
             for (let row = range.s.r; row <= range.e.r; row++) {
                 for (let col = range.s.c; col <= range.e.c; col++) {
                     const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
                     if (!summaryWs[cellAddress]) continue;
-                    const isHeader = row === 0;
-                    const isSubheader = row === 1;
-                    const isSummary = row === 2;
-                    const isSeparator = row === 3 || row === 5;
-                    const isLogTime = row === 4;
-                    const isDetailsHeader = row === 6;
-                    const isSubheading = (row === 22 || row === 27 || row === 29) && col > 0;
-                    const isFooter = row === summaryData.length - 1;
-                    const isLabel = col === 0 && row >= 7 && row < summaryData.length - 2;
-                    const isStatusCell = col === 1 && summaryData[row] && statusLabels.includes(summaryData[row].A);
-                    const isEventDetail = (row >= 24 && row <= 26) || row === 28 || (row >= 31 && row <= 34);
+                    
+                    const cellValue = summaryWs[cellAddress].v;
+                    const rowData = summaryData[row];
+                    const cellA = rowData && rowData.A ? String(rowData.A) : '';
+                    const cellB = rowData && rowData.B ? String(rowData.B) : '';
+                    
+                    // Determine row type
+                    const isMainHeader = row === 0;
+                    const isSubtitle = row === 1;
+                    const isSectionHeader = cellA && 
+                        (cellA.includes('INFORMATION') || cellA.includes('METRICS') || 
+                         cellA.includes('EVENTS') || cellA.includes('PERIODS'));
+                    const isTableHeader = cellA === 'Event #' || cellB === 'Start Date';
+                    const isMetricLabel = col === 0 && cellA && !isMainHeader && !isSubtitle && !isSectionHeader && !isTableHeader;
+                    const isUptimeRow = cellA && cellA.includes('Uptime Percentage');
+                    const isDowntimeRow = cellA && cellA.includes('Downtime Percentage');
+                    const isFooter = cellA && (cellA.includes('Report Generated') || cellA.includes('Generated On'));
+                    const isEmpty = !cellValue || cellValue === '';
+                    
+                    // Set cell styling
                     summaryWs[cellAddress].s = {
-                        font: { 
-                            bold: isHeader || isSubheader || isDetailsHeader || isLabel || isStatusCell || isSubheading, 
-                            italic: isSummary || isFooter,
-                            color: { rgb: (isHeader || isStatusCell) ? 'FFFFFF' : '000000' }, 
-                            name: 'Arial', 
-                            sz: isHeader ? 30 : (isSubheader ? 16 : 12)
+                        font: {
+                            bold: isMainHeader || isSubtitle || isSectionHeader || isTableHeader || isMetricLabel,
+                            italic: isFooter,
+                            color: { rgb: isMainHeader ? 'FFFFFF' : (isUptimeRow ? '006400' : (isDowntimeRow ? 'C00000' : '000000')) },
+                            name: 'Calibri',
+                            sz: isMainHeader ? 14 : (isSubtitle ? 12 : (isSectionHeader ? 11 : 10))
                         },
-                        alignment: { 
-                            horizontal: (isHeader || isSubheader || isSummary || isSeparator || isLogTime || isDetailsHeader || isFooter || isSubheading || (isEventDetail && col > 1)) ? 'center' : 'left', 
-                            vertical: 'top', 
-                            wrapText: !isStatusCell && !isSeparator && !isLogTime && !isSummary && !isFooter && !isSubheading
+                        alignment: {
+                            horizontal: isMainHeader || isSubtitle || isSectionHeader || isTableHeader ? 'center' : 'left',
+                            vertical: 'center',
+                            wrapText: true
+                        },
+                        fill: {
+                            fgColor: { rgb: 
+                                isMainHeader ? '1F4E78' : 
+                                (isSectionHeader ? 'D9E1F2' : 
+                                (isTableHeader ? 'E7E6E6' : 
+                                (isUptimeRow ? 'E2EFDA' : 
+                                (isDowntimeRow ? 'FCE4D6' : 'FFFFFF'))))
+                            }
                         },
                         border: {
                             top: { style: 'thin', color: { rgb: '000000' } },
@@ -3232,51 +3533,32 @@ function exportIpHistory(format) {
                             right: { style: 'thin', color: { rgb: '000000' } }
                         }
                     };
-                    if (isHeader) {
-                        summaryWs[cellAddress].s.fill = { fgColor: { rgb: '000000' } };
-                    } else if (isSubheader || isSummary || isDetailsHeader) {
-                        summaryWs[cellAddress].s.fill = { fgColor: { rgb: 'E0E0E0' } };
-                    }
-                    if (isStatusCell) {
-                        summaryWs[cellAddress].s.fill = { fgColor: { rgb: statusColors[summaryData[row].A] } };
-                    }
                 }
             }
 
-            // Merge cells
+            // Merge cells for headers
             summaryWs['!merges'] = [
-                { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }, // WorldLink Communications Ltd.
-                { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } }, // IP Data Records Generated by the System
-                { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } }, // Summary
-                { s: { r: 3, c: 0 }, e: { r: 3, c: 7 } }, // Separator
-                { s: { r: 4, c: 0 }, e: { r: 4, c: 7 } }, // Log Generated time
-                { s: { r: 5, c: 0 }, e: { r: 5, c: 7 } }, // Separator
-                { s: { r: 6, c: 0 }, e: { r: 6, c: 7 } }, // Summary of the IP Details
-                { s: { r: 7, c: 1 }, e: { r: 7, c: 7 } }, // Uptime
-                { s: { r: 8, c: 1 }, e: { r: 8, c: 7 } }, // Total Down Duration
-                { s: { r: 27, c: 1 }, e: { r: 27, c: 7 } }, // Degraded
-                { s: { r: 36, c: 0 }, e: { r: 36, c: 7 } }  // Footer
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }
             ];
 
-            // Set column widths
+            // Set column widths for better readability
             summaryWs['!cols'] = [
-                { wch: 15 }, // A
-                { wch: 20 }, // B
-                { wch: 10 }, // C
-                { wch: 12 }, // D
-                { wch: 5 },  // E
-                { wch: 12 }, // F
-                { wch: 10 }, // G
-                { wch: 10 }  // H
+                { wch: 30 }, // A - Labels
+                { wch: 25 }, // B - Values
+                { wch: 15 }, // C - Date
+                { wch: 15 }, // D - Time
+                { wch: 15 }, // E - End Date
+                { wch: 15 }  // F - End Time
             ];
 
             // Set row heights
-            summaryWs['!rows'] = summaryData.map((_, idx) => ({ hpt: idx === 0 ? 40 : (idx === 1 ? 30 : 20) }));
+            summaryWs['!rows'] = summaryData.map((_, idx) => ({ hpt: idx === 0 ? 25 : (idx === 1 ? 20 : 18) }));
 
             const logsWs = XLSX.utils.json_to_sheet(logData, {
                 header: [
                     'Timestamp', 'SM IP', 'Status', 'Latency', 'Downtime Since', 'Uptime Since',
-                    'Location', 'Device Name', 'AP Name', 'AP IP', 'AP MAC', 'SM MAC'
+                    'Location', 'Device Name', 'AP Name', 'AP IP', 'CID'
                 ]
             });
 
@@ -3338,7 +3620,7 @@ function exportIpHistory(format) {
             const queryParams = new URLSearchParams({ ip: ipInput });
             if (dateInput) queryParams.append('date', dateInput);
             if (hourInput) queryParams.append('hour', hourInput);
-            fetch(`/get_logs?${queryParams.toString()}`)
+            fetch(`/get_logs?${queryParams.toString()}`, { credentials: 'include' })
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`No logs found for IP(s) ${ipInput}${dateInput ? ' on ' + dateInput : ''}${hourInput ? ' at ' + hourInput + ':00' : ''}.`);
@@ -3521,7 +3803,12 @@ function exportIpHistory(format) {
             const rows = document.getElementById('pingTable').getElementsByTagName('tr');
             for (let i = 0; i < rows.length; i++) {
                 const statusCell = rows[i].getElementsByTagName('td')[6];
-                rows[i].style.display = (status === 'All' || statusCell.textContent === status) ? '' : 'none';
+                if (status === 'All') {
+                    // Show all rows when "All" is clicked, but keep the filter active
+                    rows[i].style.display = '';
+                } else {
+                    rows[i].style.display = (statusCell && statusCell.textContent === status) ? '' : 'none';
+                }
             }
             console.log(`Filtered table by status: ${status}`);
         }
@@ -3540,8 +3827,12 @@ function exportIpHistory(format) {
         function clearFilter() {
             activeFilter = null;
             document.getElementById('searchInput').value = '';
-            filterTable();
-            console.log('Cleared all filters');
+            // Show all rows
+            const rows = document.getElementById('pingTable').getElementsByTagName('tr');
+            for (let i = 0; i < rows.length; i++) {
+                rows[i].style.display = '';
+            }
+            console.log('Cleared all filters - showing all rows');
         }
 
        function sortTable(column) {
@@ -3630,7 +3921,7 @@ function loadMyAssignedTasks() {
     const listContainer = document.getElementById('notificationList');
     listContainer.innerHTML = '<div class="notification-empty"><div class="notification-empty-icon">⏳</div>Loading...</div>';
     
-    fetch('/api/my_tasks_list')
+    fetch('/api/my_tasks_list', { credentials: 'include' })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -3644,7 +3935,7 @@ function loadMyAssignedTasks() {
                         const item = document.createElement('div');
                         item.className = 'notification-item';
                         item.onclick = () => {
-                            // Navigate to My Tasks page with tab and task ID parameters
+                            // Navigate to Tasks page with tab and task ID parameters
                             window.location.href = `/my_tasks?tab=my-tasks&task=${task.id}`;
                         };
                         
@@ -3716,13 +4007,225 @@ function updateNotificationBadge(count) {
     }
 }
 
+// Region filtering functionality
+let allLocationsData = {}; // Store all location data
+let locationRegionMap = {}; // Map location names to region IDs
+let selectedRegionId = ''; // Currently selected region (empty = all regions)
+let allDevicesData = []; // Store all devices data for filtering
+const userRegionId = {{ user_region_id|tojson if user_region_id else 'null' }}; // User's assigned region (null for admin)
+const userRole = '{{ user.role if user else "" }}'; // User's role
+
+function loadRegionsForFilter() {
+    fetch('/api/regions', { credentials: 'include' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.regions) {
+                const select = document.getElementById('regionFilter');
+                if (select) {
+                    // Keep "All Regions" option and add regions
+                    data.regions.forEach(region => {
+                        const option = document.createElement('option');
+                        option.value = region.id;
+                        option.textContent = region.name;
+                        select.appendChild(option);
+                    });
+                    
+                    // Auto-select user's region if not admin
+                    if (userRole !== 'admin' && userRegionId) {
+                        select.value = userRegionId;
+                        selectedRegionId = userRegionId.toString();
+                        select.disabled = true; // Disable dropdown for non-admin users
+                        select.style.backgroundColor = '#f0f0f0';
+                        select.style.cursor = 'not-allowed';
+                        console.log('Auto-selected region for user:', userRegionId);
+                        
+                        // Update welcome message with region name
+                        const userRegionNameEl = document.getElementById('userRegionName');
+                        if (userRegionNameEl) {
+                            const selectedRegion = data.regions.find(r => r.id == userRegionId);
+                            if (selectedRegion) {
+                                userRegionNameEl.textContent = selectedRegion.name;
+                            }
+                        }
+                    }
+                }
+                
+                // Load location-region mapping
+                return fetch('/api/locations', { credentials: 'include' });
+            }
+        })
+        .then(response => response ? response.json() : null)
+        .then(data => {
+            if (data && data.success && data.locations) {
+                // Build location to region mapping
+                data.locations.forEach(location => {
+                    locationRegionMap[location.name] = location.region_id;
+                });
+                console.log('Location-Region mapping loaded:', Object.keys(locationRegionMap).length, 'locations');
+                
+                // Apply filter if user has a region assigned
+                if (userRole !== 'admin' && userRegionId) {
+                    console.log('Applying auto-filter for user region:', userRegionId);
+                    // Wait a bit for data to load, then apply filter
+                    setTimeout(() => {
+                        filterByRegion();
+                    }, 1000);
+                }
+            }
+        })
+        .catch(error => console.error('Error loading regions:', error));
+}
+
+function getLocationsInRegion(regionId) {
+    // Get all location names that belong to the selected region
+    if (!regionId) return null; // null means all locations
+    
+    const locations = [];
+    for (const [locationName, locRegionId] of Object.entries(locationRegionMap)) {
+        if (locRegionId == regionId) {
+            locations.push(locationName);
+        }
+    }
+    return locations;
+}
+
+function filterByRegion() {
+    selectedRegionId = document.getElementById('regionFilter').value;
+    console.log('Region filter changed to:', selectedRegionId || 'All Regions');
+    
+    // Get locations in selected region
+    const locationsInRegion = getLocationsInRegion(selectedRegionId);
+    
+    // Trim location names to handle spaces
+    const trimmedLocations = locationsInRegion ? locationsInRegion.map(loc => loc.trim()) : null;
+    
+    // Filter Location Summary table
+    filterLocationSummaryTable(trimmedLocations);
+    
+    // Filter main device table
+    filterMainTable(trimmedLocations);
+    
+    // Update summary counts
+    updateSummaryForRegion(trimmedLocations);
+    
+    // Refresh alert log with region filter
+    if (typeof allAlerts !== 'undefined' && allAlerts) {
+        updateAlertLog(allAlerts, true);
+    }
+    
+    console.log('Applied region filter:', trimmedLocations ? trimmedLocations.length + ' locations' : 'all locations');
+}
+
+function filterLocationSummaryTable(locationsInRegion) {
+    const table = document.getElementById('popTableBody');
+    if (!table) return;
+    
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let row of rows) {
+        const locationCell = row.cells[0];
+        if (!locationCell) continue;
+        
+        const locationName = locationCell.textContent.trim();
+        
+        if (!locationsInRegion) {
+            // Show all locations
+            row.style.display = '';
+        } else {
+            // Show only locations in selected region (compare trimmed names)
+            const matchFound = locationsInRegion.some(loc => loc.trim() === locationName);
+            if (matchFound) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+    }
+}
+
+function filterMainTable(locationsInRegion) {
+    const table = document.getElementById('pingTable');
+    if (!table) return;
+    
+    const rows = table.getElementsByTagName('tr');
+    
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const cells = row.getElementsByTagName('td');
+        if (cells.length === 0) continue;
+        
+        // Location is in column 5 (0-indexed)
+        const locationCell = cells[5];
+        if (!locationCell) continue;
+        
+        const deviceLocation = locationCell.textContent.trim();
+        
+        // Check region filter
+        let passesRegionFilter = true;
+        if (locationsInRegion) {
+            passesRegionFilter = locationsInRegion.some(loc => loc.trim() === deviceLocation);
+        }
+        
+        // Check active status/location filter
+        let passesActiveFilter = true;
+        if (activeFilter) {
+            if (activeFilter.location) {
+                // Location + Status filter
+                const statusCell = cells[6];
+                passesActiveFilter = (locationCell.textContent === activeFilter.location && 
+                                     statusCell && statusCell.textContent === activeFilter.status);
+            } else if (activeFilter.status && activeFilter.status !== 'All') {
+                // Status only filter
+                const statusCell = cells[6];
+                passesActiveFilter = (statusCell && statusCell.textContent === activeFilter.status);
+            }
+        }
+        
+        // Show row only if it passes both filters
+        row.style.display = (passesRegionFilter && passesActiveFilter) ? '' : 'none';
+    }
+}
+
+function updateSummaryForRegion(locationsInRegion) {
+    if (!fullData || fullData.length === 0) return;
+    
+    // Filter devices by region (compare trimmed location names)
+    let filteredData = fullData;
+    if (locationsInRegion) {
+        filteredData = fullData.filter(device => {
+            const deviceLocation = (device['Location'] || '').trim();
+            return locationsInRegion.some(loc => loc.trim() === deviceLocation);
+        });
+    }
+    
+    // Calculate counts for filtered data
+    const counts = { Reachable: 0, Degraded: 0, Down: 0, Unknown: 0 };
+    filteredData.forEach(row => {
+        const status = row['Status'];
+        if (counts.hasOwnProperty(status)) {
+            counts[status]++;
+        }
+    });
+    
+    // Update summary display
+    document.getElementById('totalCount').textContent = filteredData.length;
+    document.getElementById('reachableCount').textContent = counts.Reachable;
+    document.getElementById('degradedCount').textContent = counts.Degraded;
+    document.getElementById('downCount').textContent = counts.Down;
+    document.getElementById('unknownCount').textContent = counts.Unknown;
+    
+    console.log('Updated summary for region:', counts, 'Total:', filteredData.length);
+}
+
 // Load notification count on page load and refresh periodically
 document.addEventListener('DOMContentLoaded', function() {
     loadMyAssignedTasks();
+    loadRegionsForFilter(); // Load regions for filter dropdown
+    loadCachedResults(); // Load cached results immediately
     
     // Refresh notification count every 30 seconds
     setInterval(function() {
-        fetch('/api/my_tasks_list')
+        fetch('/api/my_tasks_list', { credentials: 'include' })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -3825,7 +4328,7 @@ function loadPastLogs() {
     const queryParams = new URLSearchParams({ ip: ipInput });
     if (dateInput) queryParams.append('date', dateInput);
     if (hourInput) queryParams.append('hour', hourInput);
-    fetch(`/get_logs?${queryParams.toString()}`)
+    fetch(`/get_logs?${queryParams.toString()}`, { credentials: 'include' })
         .then(response => {
             if (!response.ok) {
                 throw new Error(`No logs found for IP(s) ${ipInput}${dateInput ? ' on ' + dateInput : ''}${hourInput ? ' at ' + hourInput + ':00' : ''}.`);
@@ -3913,8 +4416,7 @@ function loadPastLogs() {
                         <th>Device Name</th>
                         <th>AP Name</th>
                         <th>AP IP</th>
-                        <th>AP MAC</th>
-                        <th>SM MAC</th>
+                        <th>CID</th>
                     </tr>
                 `;
                 table.appendChild(thead);
@@ -3939,8 +4441,7 @@ function loadPastLogs() {
                         entry.org_name || 'N/A',
                         entry.ap_name || 'N/A',
                         entry.ap_ip || 'N/A',
-                        entry.ap_mac || 'N/A',
-                        entry.sm_mac || 'N/A'
+                        entry.cid || 'N/A'
                     ];
                     fields.forEach((content, index) => {
                         const td = document.createElement('td');
@@ -4137,6 +4638,129 @@ setInterval(updateCountdown, 1000);
 
 
 
+
+
+        // Custom Modal Functions
+        function showCustomAlert(message) {
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+            modal.style.display = 'flex';
+            modal.style.justifyContent = 'center';
+            modal.style.alignItems = 'center';
+            modal.style.zIndex = '10000';
+            
+            const modalContent = document.createElement('div');
+            modalContent.style.background = 'white';
+            modalContent.style.padding = '20px';
+            modalContent.style.borderRadius = '8px';
+            modalContent.style.boxShadow = '0 4px 20px rgba(0,0,0,0.2)';
+            modalContent.style.maxWidth = '500px';
+            modalContent.style.width = '90%';
+            modalContent.style.position = 'relative';
+            
+            modalContent.innerHTML = `
+                <div style="padding: 20px;">
+                    ${message}
+                </div>
+                <div style="text-align: center; margin-top: 20px;">
+                    <button onclick="this.closest('div').parentElement.parentElement.remove()" 
+                            style="padding: 10px 30px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                        OK
+                    </button>
+                </div>
+            `;
+            
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+            
+            modal.onclick = function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            };
+        }
+        
+        function showCustomConfirm(message, callback) {
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+            modal.style.display = 'flex';
+            modal.style.justifyContent = 'center';
+            modal.style.alignItems = 'center';
+            modal.style.zIndex = '10000';
+            
+            const modalContent = document.createElement('div');
+            modalContent.style.background = 'white';
+            modalContent.style.padding = '25px';
+            modalContent.style.borderRadius = '8px';
+            modalContent.style.boxShadow = '0 4px 20px rgba(0,0,0,0.2)';
+            modalContent.style.maxWidth = '400px';
+            modalContent.style.width = '90%';
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.style.textAlign = 'center';
+            messageDiv.style.padding = '10px';
+            messageDiv.innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 15px;">❓</div>
+                <div style="font-size: 16px; margin-bottom: 25px; color: #333;">${message}</div>
+            `;
+            
+            const buttonDiv = document.createElement('div');
+            buttonDiv.style.display = 'flex';
+            buttonDiv.style.gap = '10px';
+            buttonDiv.style.justifyContent = 'center';
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.padding = '10px 25px';
+            cancelBtn.style.background = '#6c757d';
+            cancelBtn.style.color = 'white';
+            cancelBtn.style.border = 'none';
+            cancelBtn.style.borderRadius = '4px';
+            cancelBtn.style.cursor = 'pointer';
+            cancelBtn.style.fontSize = '14px';
+            cancelBtn.onclick = function() {
+                modal.remove();
+                callback(false);
+            };
+            
+            const confirmBtn = document.createElement('button');
+            confirmBtn.textContent = 'Confirm';
+            confirmBtn.style.padding = '10px 25px';
+            confirmBtn.style.background = '#1a73e8';
+            confirmBtn.style.color = 'white';
+            confirmBtn.style.border = 'none';
+            confirmBtn.style.borderRadius = '4px';
+            confirmBtn.style.cursor = 'pointer';
+            confirmBtn.style.fontSize = '14px';
+            confirmBtn.onclick = function() {
+                modal.remove();
+                callback(true);
+            };
+            
+            buttonDiv.appendChild(cancelBtn);
+            buttonDiv.appendChild(confirmBtn);
+            messageDiv.appendChild(buttonDiv);
+            modalContent.appendChild(messageDiv);
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+            
+            modal.onclick = function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                    callback(false);
+                }
+            };
+        }
 
 
 </script>
