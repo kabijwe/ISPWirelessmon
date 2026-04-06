@@ -68,7 +68,7 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .time-btns{display:flex;gap:4px;}
 .tb{padding:4px 12px;border:1px solid #1a73e8;border-radius:6px;background:#fff;color:#1a73e8;cursor:pointer;font-size:12px;font-weight:600;}
 .tb.active{background:#1a73e8;color:#fff;}
-.graph-card canvas{width:100%!important;height:220px!important;}
+.graph-card canvas{display:block;width:100%!important;height:180px!important;}
 
 /* ── Port table ── */
 .ports-card{background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.07);}
@@ -104,7 +104,11 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .ap-stat .sk{font-size:11px;color:#888;margin-top:3px;}
 .ap-graph-box{background:#f0f9ff;border-radius:10px;padding:12px 14px;border:1px solid #b3e5fc;margin-bottom:14px;}
 .ap-graph-box .g-title{font-size:12px;font-weight:600;color:#0277bd;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
-.ap-graph-box canvas{width:100%!important;height:180px!important;}
+.ap-graph-box canvas{display:block;width:100%!important;height:160px!important;}
+/* SM graph box — fixed height to prevent infinite canvas growth */
+.sm-graph-box{background:#f3f0ff;border-radius:10px;padding:12px 14px;border:1px solid #c5cae9;margin-top:10px;}
+.sm-graph-box .g-title{font-size:12px;font-weight:600;color:#3949ab;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;}
+.sm-graph-box canvas{display:block;width:100%!important;height:160px!important;}
 
 /* ── SM table ── */
 .sm-tbl{width:100%;border-collapse:collapse;font-size:13px;}
@@ -113,12 +117,25 @@ body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#333;min-height:
 .sm-tbl tbody tr:hover{background:#f0f4ff;}
 .sm-tbl tbody td{padding:10px 14px;color:#333;}
 .sm-tbl tbody td code{font-size:12px;background:#e8eaf6;color:#3949ab;padding:2px 8px;border-radius:4px;font-weight:600;}
-.sm-up{background:#e6f4ea;color:#1e8e3e;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
-.sm-down{background:#fce8e6;color:#c5221f;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
-.sm-deg{background:#fff3e0;color:#e65100;font-weight:700;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
-.sm-unknown{background:#f1f3f4;color:#5f6368;font-weight:600;padding:3px 10px;border-radius:20px;font-size:12px;display:inline-block;}
+/* Match global project status colors exactly */
+.sm-up{color:#006400;font-weight:bold;background:rgba(76,175,80,.1);padding:3px 10px;border-radius:10px;font-size:12px;display:inline-block;}
+.sm-down{color:#FF0000;font-weight:bold;background:rgba(244,67,54,.1);padding:3px 10px;border-radius:10px;font-size:12px;display:inline-block;}
+.sm-deg{color:#ff9800;font-weight:bold;background:rgba(255,152,0,.1);padding:3px 10px;border-radius:10px;font-size:12px;display:inline-block;}
+.sm-deg-loss{color:#f44336;font-weight:bold;background:rgba(244,67,54,.1);padding:3px 10px;border-radius:10px;font-size:12px;display:inline-block;}
+.sm-unknown{color:#777;font-weight:bold;background:#f1f3f4;padding:3px 10px;border-radius:10px;font-size:12px;display:inline-block;}
 .sm-main-row:hover{background:#f0f4ff;}
 .sm-expand-btn{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:#e8eaf6;color:#3949ab;border-radius:5px;font-size:16px;font-weight:700;cursor:pointer;user-select:none;}
+/* SM info table inside expand row */
+.sm-info-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+.sm-info-tbl td{padding:3px 8px;border-bottom:1px solid #e8eaf6;color:#444;}
+.sm-info-tbl td:first-child{color:#666;font-weight:600;white-space:nowrap;width:45%;}
+.sm-info-tbl td:last-child{color:#222;font-weight:500;}
+/* SM expand inner */
+.sm-exp-inner{padding:8px 14px;background:#f5f4ff;border-top:2px solid #c5cae9;display:flex;flex-direction:column;gap:6px;}
+.sm-stat-tiles{display:flex;flex-wrap:wrap;gap:5px;}
+.sm-stat{background:#fff;border-radius:8px;padding:6px 10px;min-width:80px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.06);flex:1;}
+.sm-stat .sv{font-size:13px;font-weight:700;color:#3949ab;}
+.sm-stat .sk{font-size:10px;color:#888;margin-top:2px;}
 
 /* ── Badges ── */
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
@@ -426,7 +443,7 @@ async function buildMainPanel(sw){
             <button class="tb" onclick="loadSwGraphs(${sw.id},24,this)">24h</button>
           </div>
         </div>
-        <canvas id="swg-t-${sw.id}" style="height:240px!important;"></canvas>
+        <canvas id="swg-t-${sw.id}"></canvas>
       </div>`;
 
   main.innerHTML=`
@@ -484,8 +501,8 @@ async function loadSwGraphs(swId,hours,btn){
       const k=`swt-${swId}`;
       if(swCharts[k])swCharts[k].destroy();
       swCharts[k]=new Chart(tc,{type:'line',data:{labels,datasets:[
-        {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
-        {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
+        {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true},
+        {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true}
       ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
         scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
     }
@@ -630,8 +647,8 @@ async function loadPortChart(swId,portIdx,hours,btn){
     if(!ctx)return;
     if(portCharts[k])portCharts[k].destroy();
     portCharts[k]=new Chart(ctx,{type:'line',data:{labels:d.chart.labels,datasets:[
-      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
-      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
+      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true},
+      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
       scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
   }catch(e){console.error(e);}
@@ -658,10 +675,16 @@ async function buildApPanel(panel,swId,portIdx,apIp){
     const ld=await lr.json();
     const apDev=allDevices.find(d=>d.ip===apIp);
     let smList=[];
+    let apDetails=null;
     if(apDev){
-      const sr=await fetch(`/api/snmp/devices/${apDev.id}/sm_devices`);
-      const sd=await sr.json();
-      if(sd.success)smList=sd.sm_devices;
+      // Trigger immediate poll so AP details are fresh
+      fetch(`/api/snmp/devices/${apDev.id}/poll_now`,{method:'POST'}).catch(()=>{});
+      const [sr,dr]=await Promise.all([
+        fetch(`/api/snmp/devices/${apDev.id}/sm_devices`),
+        fetch(`/api/snmp/devices/${apDev.id}/ap_details`)
+      ]);
+      const sd=await sr.json(); if(sd.success)smList=sd.sm_devices;
+      const dd=await dr.json(); if(dd.success)apDetails=dd.details;
     }else if(ld.success&&ld.found&&ld.role==='ap'){
       smList=(ld.sm_devices||[]).map(s=>({...s,status:'Unknown',latency:null}));
     }
@@ -672,10 +695,31 @@ async function buildApPanel(panel,swId,portIdx,apIp){
     const smOffline=smList.filter(s=>s.status==='Down').length;
     const smUnknown=smTotal-smOnline-smOffline;
     const apStatus=apDev?(apDev.last_status||'unknown'):'unknown';
-    const apUptime=apDev?fmtUp(apDev.uptime_seconds):'—';
-    const apSignal=apDev&&apDev.signal_dbm!=null?apDev.signal_dbm.toFixed(1)+' dBm':'—';
-    const apRx=apDev&&apDev.rx_mbps!=null?apDev.rx_mbps.toFixed(3)+' Mbps':'—';
-    const apTx=apDev&&apDev.tx_mbps!=null?apDev.tx_mbps.toFixed(3)+' Mbps':'—';
+    const apUptime=apDetails?.uptime_str||fmtUp(apDev?.uptime_seconds)||'—';
+    const apSignal=apDetails?.signal_dbm!=null?apDetails.signal_dbm.toFixed(1)+' dBm':(apDev?.signal_dbm!=null?apDev.signal_dbm.toFixed(1)+' dBm':'—');
+    const apRx=apDetails?.rx_mbps!=null?apDetails.rx_mbps.toFixed(3)+' Mbps':(apDev?.rx_mbps!=null?apDev.rx_mbps.toFixed(3)+' Mbps':'—');
+    const apTx=apDetails?.tx_mbps!=null?apDetails.tx_mbps.toFixed(3)+' Mbps':(apDev?.tx_mbps!=null?apDev.tx_mbps.toFixed(3)+' Mbps':'—');
+
+    // AP detail info block
+    const apInfoBlock=apDetails?`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
+        <table class="sm-info-tbl">
+          <tr><td>📛 Device Name</td><td>${apDetails.device_name_snmp||'—'}</td></tr>
+          <tr><td>📶 Frequency</td><td>${apDetails.freq_mhz?apDetails.freq_mhz+' MHz':'—'}</td></tr>
+          <tr><td>📏 Channel BW</td><td>${apDetails.chan_bw||'—'}</td></tr>
+          <tr><td>📡 TX Power</td><td>${apDetails.tx_power!=null?apDetails.tx_power+' dBm':'—'}</td></tr>
+          <tr><td>📶 Antenna Gain</td><td>${apDetails.antenna_gain!=null?apDetails.antenna_gain+' dBi':'—'}</td></tr>
+          <tr><td>🔌 Ethernet</td><td>${apDetails.eth_status||'—'}</td></tr>
+        </table>
+        <table class="sm-info-tbl">
+          <tr><td>🏷 Model</td><td>${apDetails.model||'—'}</td></tr>
+          <tr><td>💾 Firmware</td><td>${apDetails.firmware||'—'}</td></tr>
+          <tr><td>📡 SSID</td><td>${apDetails.reg_ap_ssid||'—'}</td></tr>
+          <tr><td>🖧 MAC</td><td><code style="font-size:10px;">${apDetails.reg_ap_mac||'—'}</code></td></tr>
+          <tr><td>⬆ UL MCS</td><td>${apDetails.ul_mcs||'—'}</td></tr>
+          <tr><td>⬇ DL MCS</td><td>${apDetails.dl_mcs||'—'}</td></tr>
+        </table>
+      </div>`:'';
     const apModel=apDev&&apDev.model?apDev.model:'—';
     const apFw=apDev&&apDev.firmware?apDev.firmware:'—';
     const graphId=`apg-${swId}-${portIdx}`;
@@ -685,10 +729,27 @@ async function buildApPanel(panel,swId,portIdx,apIp){
       const sc=s.status==='Reachable'?'sm-up':s.status==='Down'?'sm-down':(s.status==='Degraded'||s.status==='Loss'||s.status==='High Latency')?'sm-deg':'sm-unknown';
       const hasSnmp=s.snmp_id!=null;
       const snmpStatus=s.snmp_status||'unknown';
-      const signal=s.signal_dbm!=null?`${s.signal_dbm.toFixed(1)} dBm`:'—';
       const smRx=s.rx_mbps!=null?s.rx_mbps.toFixed(3):'—';
       const smTx=s.tx_mbps!=null?s.tx_mbps.toFixed(3):'—';
-      const smUp=s.uptime_seconds?fmtUp(s.uptime_seconds):'—';
+      const smUp=s.uptime_str||fmtUp(s.uptime_seconds)||'—';
+      // ePMP fields
+      const dlRssi=s.dl_rssi!=null?`${s.dl_rssi} dBm`:'—';
+      const dlSnr=s.dl_snr!=null?`${s.dl_snr} dB`:'—';
+      const mcsLabels=['MCS 0','MCS 1','MCS 2','MCS 3','MCS 4','MCS 5','MCS 6','MCS 7',
+        'MCS 8','MCS 9','MCS 10','MCS 11','MCS 12','MCS 13 - 64-QAM 2/3','MCS 14 - 64-QAM 3/4','MCS 15 - 64-QAM 5/6'];
+      const ulMcs=s.ul_mcs!=null?(mcsLabels[s.ul_mcs]||`MCS ${s.ul_mcs}`):'—';
+      const dlMcs=s.dl_mcs!=null?(mcsLabels[s.dl_mcs]||`MCS ${s.dl_mcs}`):'—';
+      const lq=s.link_quality!=null?`${s.link_quality} %`:'—';
+      const lc=s.link_capacity!=null?`${s.link_capacity} %`:'—';
+      const txPwr=s.tx_power!=null?`${s.tx_power} dBm`:'—';
+      const freq=s.freq_mhz!=null?`${s.freq_mhz} MHz`:'—';
+      const bw=s.chan_bw||'—';
+      const wlSt=s.wireless_status===1?'<span style="color:#34a853;font-weight:700;">Up</span>':'<span style="color:#ea4335;">Down</span>';
+      const ethSt=s.eth_status||'—';
+      const antGain=s.antenna_gain!=null?`${s.antenna_gain} dBi`:'—';
+      const devNameSnmp=s.device_name_snmp||'—';
+      const apSsid=s.reg_ap_ssid||'—';
+      const apMac=s.reg_ap_mac||'—';
 
       const snmpBadge=hasSnmp
         ?`<span class="badge b-green" style="font-size:10px;margin-left:5px;">📶 SNMP</span>`:'';
@@ -698,15 +759,38 @@ async function buildApPanel(panel,swId,portIdx,apIp){
       <tr id="smexp-${swId}-${portIdx}-${i}" style="display:none;">
         <td colspan="8" style="padding:0;">
           <div class="sm-exp-inner">
+            <!-- Row 1: Signal & Link quality tiles -->
             <div class="sm-stat-tiles">
               <div class="sm-stat"><div class="sv">${sBadge(snmpStatus)}</div><div class="sk">SNMP Status</div></div>
-              <div class="sm-stat"><div class="sv" style="color:#7b1fa2;">${signal}</div><div class="sk">Signal</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#7b1fa2;">${dlRssi}</div><div class="sk">DL RSSI</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#0277bd;">${dlSnr}</div><div class="sk">DL SNR</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#2e7d32;">${lq}</div><div class="sk">Link Quality (UL)</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#1565c0;">${lc}</div><div class="sk">Link Capacity (UL)</div></div>
               <div class="sm-stat"><div class="sv" style="color:#34a853;">${smRx}</div><div class="sk">RX Mbps</div></div>
-              <div class="sm-stat"><div class="sv" style="color:#1565c0;">${smTx}</div><div class="sk">TX Mbps</div></div>
+              <div class="sm-stat"><div class="sv" style="color:#1a73e8;">${smTx}</div><div class="sk">TX Mbps</div></div>
               <div class="sm-stat"><div class="sv">${smUp}</div><div class="sk">Uptime</div></div>
-              ${s.model?`<div class="sm-stat"><div class="sv" style="font-size:13px;">${s.model}</div><div class="sk">Model</div></div>`:''}
-              ${s.firmware?`<div class="sm-stat"><div class="sv" style="font-size:13px;">${s.firmware}</div><div class="sk">Firmware</div></div>`:''}
             </div>
+            <!-- Row 2: Radio & device info table -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+              <table class="sm-info-tbl">
+                <tr><td>📡 Wireless Status</td><td>${wlSt}</td></tr>
+                <tr><td>🔌 Ethernet</td><td>${ethSt}</td></tr>
+                <tr><td>📶 Frequency</td><td>${freq}</td></tr>
+                <tr><td>📏 Channel BW</td><td>${bw}</td></tr>
+                <tr><td>⬆ UL MCS</td><td>${ulMcs}</td></tr>
+                <tr><td>⬇ DL MCS</td><td>${dlMcs}</td></tr>
+              </table>
+              <table class="sm-info-tbl">
+                <tr><td>📛 Device Name</td><td>${devNameSnmp}</td></tr>
+                <tr><td>🔗 Reg. AP SSID</td><td>${apSsid}</td></tr>
+                <tr><td>🖧 Reg. AP MAC</td><td><code style="font-size:11px;">${apMac}</code></td></tr>
+                <tr><td>📡 TX Power</td><td>${txPwr}</td></tr>
+                <tr><td>📶 Antenna Gain</td><td>${antGain}</td></tr>
+                ${s.model?`<tr><td>🏷 Model</td><td>${s.model}</td></tr>`:''}
+                ${s.firmware?`<tr><td>💾 Firmware</td><td>${s.firmware}</td></tr>`:''}
+              </table>
+            </div>
+            <!-- Traffic graph -->
             <div class="sm-graph-box">
               <div class="g-title">
                 <span>📈 SM Traffic — ${s.device_name||s.sm_ip}</span>
@@ -754,11 +838,12 @@ async function buildApPanel(panel,swId,portIdx,apIp){
           <div class="ap-stat"><div class="sv" style="font-size:14px;color:#34a853;">${apRx}</div><div class="sk">RX Mbps</div></div>
           <div class="ap-stat"><div class="sv" style="font-size:14px;color:#1a73e8;">${apTx}</div><div class="sk">TX Mbps</div></div>
         </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;color:#555;">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:#555;">
           ${apDev&&apDev.model?`<span>🏷 Model: <strong>${apDev.model}</strong></span>`:''}
           ${apDev&&apDev.firmware?`<span>💾 Firmware: <strong>${apDev.firmware}</strong></span>`:''}
           ${apDev?`<span>📶 SNMP: <strong style="color:#34a853;">Monitored</strong></span>`:`<span>📶 SNMP: <strong style="color:#aaa;">Not added</strong></span>`}
         </div>
+        ${apInfoBlock}
         ${apDev?`<div class="ap-graph-box">
           <div class="g-title"><span>📈 AP Traffic — ${apName}</span>
             <div class="time-btns">
@@ -799,8 +884,11 @@ function toggleSmRow(rowId,devId,canvasId,toggleBtnId){
   if(btn)btn.textContent=visible?'＋':'−';
   if(!visible&&!row.dataset.loaded){
     row.dataset.loaded='1';
+    // Trigger immediate poll so data is fresh
+    fetch(`/api/snmp/devices/${devId}/poll_now`,{method:'POST'}).catch(()=>{});
     const activeBtn=row.querySelector('.tb.active');
-    loadSmChart(devId,canvasId,1,activeBtn);
+    // Load chart after short delay to let poll complete
+    setTimeout(()=>loadSmChart(devId,canvasId,1,activeBtn),3000);
   }
 }
 
@@ -822,7 +910,7 @@ function attachSmTableClicks(container){
 async function loadSmChart(devId,canvasId,hours,btn){
   const canvas=document.getElementById(canvasId);
   if(!canvas)return;
-  const wrap=canvas.closest('.ap-graph-box');
+  const wrap=canvas.closest('.sm-graph-box')||canvas.closest('.ap-graph-box');
   if(wrap){wrap.querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');}
   const k=`smc-${devId}-${canvasId}`;
   try{
@@ -831,8 +919,8 @@ async function loadSmChart(devId,canvasId,hours,btn){
     if(!d.success)return;
     if(apCharts[k])apCharts[k].destroy();
     apCharts[k]=new Chart(canvas,{type:'line',data:{labels:d.chart.labels.map(l=>l.substring(11,16)),datasets:[
-      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
-      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
+      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true},
+      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
       scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
   }catch(e){console.error(e);}
@@ -850,8 +938,8 @@ async function loadApChart(devId,canvasId,hours,btn){
     if(!d.success)return;
     if(apCharts[k])apCharts[k].destroy();
     apCharts[k]=new Chart(canvas,{type:'line',data:{labels:d.chart.labels.map(l=>l.substring(11,16)),datasets:[
-      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2},
-      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2}
+      {label:'RX Mbps',data:d.chart.rx,borderColor:'#34a853',backgroundColor:'rgba(52,168,83,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true},
+      {label:'TX Mbps',data:d.chart.tx,borderColor:'#1a73e8',backgroundColor:'rgba(26,115,232,.12)',tension:.3,fill:true,pointRadius:2,borderWidth:2,spanGaps:true}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{size:11},boxWidth:12}}},
       scales:{x:{ticks:{maxTicksLimit:10,font:{size:10}}},y:{beginAtZero:true,title:{display:true,text:'Mbps',font:{size:10}}}}}});
   }catch(e){console.error(e);}
